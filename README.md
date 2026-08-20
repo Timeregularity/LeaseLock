@@ -350,4 +350,6 @@ LeaseLock is designed to support conversations about:
 
 Built to demonstrate full-stack engineering beyond the happy path.
 
+© 2026 Timeregularity. Built as a full-stack systems engineering portfolio project.
+
 </div>

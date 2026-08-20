@@ -6,6 +6,7 @@
 .react-modal-backdrop{position:fixed;inset:0;z-index:1050;display:grid;place-items:center;padding:20px;background:rgba(5,31,32,.48)}
 .react-modal{width:min(100%,500px);overflow:hidden;background:#fff;border-radius:16px;box-shadow:0 24px 70px rgba(5,31,32,.25)}
 .react-modal .modal-header,.react-modal .modal-body,.react-modal .modal-footer{padding:20px 24px}
+.footer-socials{display:flex;align-items:center;gap:10px}.footer-socials a{display:inline-flex;align-items:center;gap:7px;padding:7px 10px;border:1px solid var(--line);border-radius:9px;color:var(--ink);font-weight:650;text-decoration:none;transition:background-color .2s,border-color .2s,transform .2s}.footer-socials a:hover,.footer-socials a:focus-visible{background:#e9efea;border-color:var(--sage);color:var(--forest);transform:translateY(-1px)}.footer-socials svg{width:17px;height:17px;flex:none}
 .react-modal .modal-header{display:flex;justify-content:space-between;border-bottom:1px solid var(--line)}
 .react-modal .modal-footer{display:flex;justify-content:flex-end;gap:8px;border-top:1px solid var(--line)}
 .seat-loading{color:transparent!important}
