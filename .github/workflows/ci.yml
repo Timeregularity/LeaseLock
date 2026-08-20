@@ -1,0 +1,34 @@
+name: LeaseLock CI
+on:
+  push:
+  pull_request:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: leaselock
+          POSTGRES_USER: leaselock
+          POSTGRES_PASSWORD: leaselock
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U leaselock -d leaselock"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://leaselock:leaselock@localhost:5432/leaselock
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run db:migrate
+      - run: npm run db:seed
+      - run: npm run test:server
+      - run: npm run test:frontend
+      - run: npm run test:integration
+      - run: npm run build

@@ -1,0 +1,37 @@
+services:
+  api:
+    build: .
+    environment:
+      PORT: 8080
+      NODE_ENV: production
+      CLIENT_ORIGIN: http://localhost:8080
+      DATABASE_URL: postgresql://leaselock:leaselock@postgres:5432/leaselock
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8080/v1/health/ready').then(r=>{if(!r.ok)process.exit(1)})"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: leaselock
+      POSTGRES_USER: leaselock
+      POSTGRES_PASSWORD: leaselock
+    ports:
+      - "5432:5432"
+    volumes:
+      - leaselock_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U leaselock -d leaselock"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  leaselock_postgres:

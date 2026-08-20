@@ -1,0 +1,17 @@
+import { Router } from 'express'
+import { pool,withTransaction } from '../db/pool.js'
+import { requireAuth } from '../middleware/auth.js'
+
+export const paymentsRouter=Router();paymentsRouter.use(requireAuth)
+const scenarios=new Set(['SUCCESS','FAILURE','PENDING','CANCELLED'])
+
+function toPayment(row){return{id:row.id,bookingId:row.booking_id,status:row.status,method:row.method,scenario:row.scenario,amount:Number(row.amount_paise)/100,refundedAmount:Number(row.refunded_paise||0)/100,currency:row.currency.trim()}}
+
+paymentsRouter.post('/',async(request,response,next)=>{try{const {bookingId,method='TEST_UPI',scenario='SUCCESS'}=request.body||{};if(!scenarios.has(scenario))return response.status(400).json({code:'INVALID_PAYMENT_SCENARIO',message:'Choose a supported payment scenario.'})
+  const payment=await withTransaction(async client=>{const booking=await client.query("SELECT * FROM bookings WHERE id=$1 AND user_id=$2 FOR UPDATE",[bookingId,request.user.id]);if(!booking.rowCount)return null;const row=booking.rows[0];if(!['PENDING_PAYMENT','PAYMENT_FAILED'].includes(row.status)){const error=new Error('This booking is not awaiting payment.');error.status=409;error.code='BOOKING_NOT_PAYABLE';throw error}const active=await client.query("SELECT id FROM payments WHERE booking_id=$1 AND status IN('CREATED','PROCESSING','SUCCESSFUL')",[row.id]);if(active.rowCount){const error=new Error('An active payment already exists for this booking.');error.status=409;error.code='ACTIVE_PAYMENT_EXISTS';throw error}await client.query("UPDATE bookings SET status='PENDING_PAYMENT',updated_at=now() WHERE id=$1",[row.id]);const result=await client.query("INSERT INTO payments(booking_id,method,scenario,amount_paise) VALUES($1,$2,$3,$4) RETURNING *",[row.id,String(method).slice(0,40),scenario,row.total_paise]);return result.rows[0]})
+  if(!payment)return response.status(404).json({code:'BOOKING_NOT_FOUND',message:'The booking could not be found.'});response.status(201).json({payment:toPayment(payment)})}catch(error){next(error)}})
+
+paymentsRouter.post('/:id/simulate',async(request,response,next)=>{try{const payment=await withTransaction(async client=>{const result=await client.query(`SELECT p.* FROM payments p JOIN bookings b ON b.id=p.booking_id WHERE p.id=$1 AND b.user_id=$2 FOR UPDATE OF p`,[request.params.id,request.user.id]);if(!result.rowCount)return null;const row=result.rows[0];if(row.status!=='CREATED'&&row.status!=='PROCESSING')return row;const status={SUCCESS:'SUCCESSFUL',FAILURE:'FAILED',PENDING:'PROCESSING',CANCELLED:'CANCELLED'}[row.scenario];const updated=await client.query('UPDATE payments SET status=$1,updated_at=now() WHERE id=$2 RETURNING *',[status,row.id]);if(['FAILED','CANCELLED'].includes(status))await client.query("UPDATE bookings SET status='PAYMENT_FAILED',updated_at=now() WHERE id=$1",[row.booking_id]);return updated.rows[0]})
+  if(!payment)return response.status(404).json({code:'PAYMENT_NOT_FOUND',message:'The payment could not be found.'});response.json({payment:toPayment(payment)})}catch(error){next(error)}})
+
+paymentsRouter.get('/:id',async(request,response,next)=>{try{const result=await pool.query('SELECT p.* FROM payments p JOIN bookings b ON b.id=p.booking_id WHERE p.id=$1 AND b.user_id=$2',[request.params.id,request.user.id]);if(!result.rowCount)return response.status(404).json({code:'PAYMENT_NOT_FOUND',message:'The payment could not be found.'});response.json({payment:toPayment(result.rows[0])})}catch(error){next(error)}})

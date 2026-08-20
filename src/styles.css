@@ -1,0 +1,15 @@
+@import url('/css/main.css');
+@import url('/css/seats.css');
+@import url('/css/admin.css');
+
+#root{min-height:100vh}
+.react-modal-backdrop{position:fixed;inset:0;z-index:1050;display:grid;place-items:center;padding:20px;background:rgba(5,31,32,.48)}
+.react-modal{width:min(100%,500px);overflow:hidden;background:#fff;border-radius:16px;box-shadow:0 24px 70px rgba(5,31,32,.25)}
+.react-modal .modal-header,.react-modal .modal-body,.react-modal .modal-footer{padding:20px 24px}
+.react-modal .modal-header{display:flex;justify-content:space-between;border-bottom:1px solid var(--line)}
+.react-modal .modal-footer{display:flex;justify-content:flex-end;gap:8px;border-top:1px solid var(--line)}
+.seat-loading{color:transparent!important}
+.auth-loading{min-height:70vh;display:grid;place-content:center;justify-items:center;gap:14px;color:var(--muted)}
+.nav-user{padding:.5rem .65rem;color:var(--muted);font-size:.82rem;white-space:nowrap}
+.info-strip>div{position:relative;flex:1}
+.info-strip .step-arrow{position:absolute;right:0}
