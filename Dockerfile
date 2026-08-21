@@ -14,4 +14,4 @@ COPY --from=build /app/dist ./dist
 COPY --from=build /app/server ./server
 EXPOSE 8080
 USER node
-CMD ["node", "server/index.js"]
+CMD ["sh", "-c", "node server/db/migrate.js && node server/index.js"]

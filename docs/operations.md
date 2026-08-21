@@ -10,9 +10,10 @@ Build and start the complete local production stack:
 
 ```powershell
 docker compose build api
-docker compose run --rm api node server/db/migrate.js
 docker compose up -d
 ```
+
+The production container applies pending migrations before starting the API. Migrations are idempotent and tracked in `schema_migrations`.
 
 The API and React application are served at `http://localhost:8080`. `/v1/health` is the liveness probe and `/v1/health/ready` verifies PostgreSQL readiness.
 
