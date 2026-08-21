@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { config } from '../config.js'
 import { pool } from '../db/pool.js'
+import { currentRequestStore } from './request-store.js'
 
 const mutations=new Set(['POST','PUT','PATCH','DELETE'])
 
@@ -8,5 +9,5 @@ export function requestContext(request,response,next){request.id=request.get('X-
 
 export function csrfOriginCheck(request,response,next){if(!mutations.has(request.method))return next();const origin=request.get('Origin');if(!origin)return next();if(origin!==config.clientOrigin)return response.status(403).json({code:'CSRF_ORIGIN_REJECTED',message:'This request origin is not allowed.'});next()}
 
-export function auditSuccessfulMutations(request,response,next){if(!mutations.has(request.method))return next();response.on('finish',()=>{if(response.statusCode>=200&&response.statusCode<400){const segments=request.path.split('/').filter(Boolean);pool.query(`INSERT INTO audit_logs(actor_user_id,action,resource_type,resource_id,request_id,metadata)
+export function auditSuccessfulMutations(request,response,next){if(!mutations.has(request.method))return next();response.on('finish',()=>{const store=currentRequestStore();if(response.statusCode>=200&&response.statusCode<400&&!store?.transactionAudited){const segments=request.path.split('/').filter(Boolean);pool.query(`INSERT INTO audit_logs(actor_user_id,action,resource_type,resource_id,request_id,metadata)
       VALUES($1,$2,$3,$4,$5,$6)`,[request.user?.id||null,`${request.method} ${request.baseUrl||''}${request.route?.path||request.path}`,segments[0]||'api',request.params?.id||request.params?.identifier||null,request.id,{status:response.statusCode}]).catch(error=>console.error(JSON.stringify({level:'error',type:'audit_failure',requestId:request.id,message:error.message})))} });next()}

@@ -1,4 +1,5 @@
 import { createGroupedHold,expireHolds } from '../holds/service.js'
+import { enqueueSeatChange } from '../realtime/outbox.js'
 
 export async function promoteWaitlist(client) {
   await expireHolds(client)
@@ -15,7 +16,7 @@ export async function promoteWaitlist(client) {
       AND NOT EXISTS(SELECT 1 FROM booking_seats bs WHERE bs.event_seat_id=es.id AND bs.cancelled_at IS NULL)
       ORDER BY es.section,es.row_label,es.seat_number,es.seat_label LIMIT $2`,[entry.event_id,entry.requested_seats])
     if(available.rowCount<entry.requested_seats){blockedEvents.add(entry.event_id);continue}
-    try{const hold=await createGroupedHold(client,{userId:entry.user_id,eventIdentifier:entry.slug,seatLabels:available.rows.map(row=>row.seat_label),idempotencyKey:`waitlist-offer-${entry.id}`});await client.query("UPDATE waitlist_entries SET status='OFFERED',offered_hold_id=$1,offered_at=now(),updated_at=now() WHERE id=$2",[hold.id,entry.id]);promoted++}catch(error){if(!['ACTIVE_HOLD_EXISTS','SEATS_UNAVAILABLE'].includes(error.code))throw error}
+    try{const hold=await createGroupedHold(client,{userId:entry.user_id,eventIdentifier:entry.slug,seatLabels:available.rows.map(row=>row.seat_label),idempotencyKey:`waitlist-offer-${entry.id}`});await client.query("UPDATE waitlist_entries SET status='OFFERED',offered_hold_id=$1,offered_at=now(),updated_at=now() WHERE id=$2",[hold.id,entry.id]);await enqueueSeatChange(client,entry.slug,'waitlist-offered');promoted++}catch(error){if(!['ACTIVE_HOLD_EXISTS','SEATS_UNAVAILABLE'].includes(error.code))throw error}
   }
   return promoted
 }

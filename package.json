@@ -19,7 +19,10 @@
     "test:integration": "node --test server/auth/auth.integration.test.js server/bookings/bookings.integration.test.js server/events/events.integration.test.js server/holds/holds.integration.test.js server/waitlist/waitlist.integration.test.js",
     "test:frontend": "vitest run",
     "test:all": "npm run test:server && npm run test:frontend && npm run test:integration",
-    "test:load": "node scripts/load-test.js"
+    "test:load": "node scripts/load-test.js",
+    "test:k6:read": "k6 run scripts/k6-read.js",
+    "test:k6:contention": "k6 run scripts/k6-contention.js"
+    ,"check:invariants": "node scripts/check-invariants.js"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.0.2",

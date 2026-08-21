@@ -5,6 +5,7 @@ import { requireAuth } from '../middleware/auth.js'
 import { bookingReference,getBooking,toBooking } from '../bookings/queries.js'
 import { requestHash } from '../holds/service.js'
 import { broadcastSeatChange } from '../realtime/seat-events.js'
+import { enqueueSeatChange } from '../realtime/outbox.js'
 
 export const holdsRouter=Router()
 holdsRouter.use(requireAuth)
@@ -15,7 +16,7 @@ holdsRouter.post('/',async(request,response,next)=>{
     if(!eventId||!Array.isArray(seatIds)||seatIds.length<1||seatIds.length>6)return response.status(400).json({code:'VALIDATION_ERROR',message:'Select between 1 and 6 seats.'})
     if(new Set(seatIds.map(value=>String(value).trim().toUpperCase())).size!==seatIds.length)return response.status(400).json({code:'DUPLICATE_SEATS',message:'Each selected seat must be unique.'})
     if(key.length<8||key.length>200)return response.status(400).json({code:'IDEMPOTENCY_KEY_REQUIRED',message:'A valid Idempotency-Key header is required.'})
-    const hold=await withTransaction(client=>createGroupedHold(client,{userId:request.user.id,eventIdentifier:String(eventId),seatLabels:seatIds,idempotencyKey:key}))
+    const hold=await withTransaction(async client=>{const created=await createGroupedHold(client,{userId:request.user.id,eventIdentifier:String(eventId),seatLabels:seatIds,idempotencyKey:key});await enqueueSeatChange(client,created.eventId,'hold-created');return created})
     broadcastSeatChange(hold.eventId,'hold-created');response.status(201).json(hold)
   }catch(error){if(error.code==='23505'&&error.constraint==='one_active_hold_per_user_idx'){error.status=409;error.code='ACTIVE_HOLD_EXISTS';error.message='You already have an active seat hold.'}next(error)}
 })
@@ -25,7 +26,7 @@ holdsRouter.put('/:id/seats',async(request,response,next)=>{
     const {seatIds}=request.body||{}
     if(!Array.isArray(seatIds)||seatIds.length>6)return response.status(400).json({code:'VALIDATION_ERROR',message:'Select up to 6 seats.'})
     if(new Set(seatIds.map(value=>String(value).trim().toUpperCase())).size!==seatIds.length)return response.status(400).json({code:'DUPLICATE_SEATS',message:'Each selected seat must be unique.'})
-    const hold=await withTransaction(client=>updateGroupedHold(client,{holdId:request.params.id,userId:request.user.id,seatLabels:seatIds}))
+    const hold=await withTransaction(async client=>{const updated=await updateGroupedHold(client,{holdId:request.params.id,userId:request.user.id,seatLabels:seatIds});await enqueueSeatChange(client,updated.eventId,updated.status==='RELEASED'?'hold-released':'hold-updated');return updated})
     broadcastSeatChange(hold.eventId,hold.status==='RELEASED'?'hold-released':'hold-updated');response.json(hold)
   }catch(error){next(error)}
 })
@@ -44,7 +45,7 @@ holdsRouter.post('/:id/confirm',async(request,response,next)=>{
       if(hold.rows[0].status!=='ACTIVE'){const error=new Error('This hold has expired.');error.status=410;error.code='HOLD_EXPIRED';throw error}const payment=await client.query("SELECT id FROM payments WHERE booking_id=$1 AND status='SUCCESSFUL' ORDER BY created_at DESC LIMIT 1 FOR UPDATE",[booking.id]);if(!payment.rowCount){const error=new Error('A successful payment is required before confirmation.');error.status=409;error.code='PAYMENT_REQUIRED';throw error}
       await client.query(`INSERT INTO booking_seats(booking_id,event_seat_id,seat_label,section,price_paise)
         SELECT $1,es.id,es.seat_label,es.section,hs.price_paise FROM hold_seats hs JOIN event_seats es ON es.id=hs.event_seat_id WHERE hs.hold_id=$2
-        ON CONFLICT(booking_id,event_seat_id) DO NOTHING`,[booking.id,request.params.id]);await client.query("UPDATE bookings SET status='CONFIRMED',updated_at=now() WHERE id=$1",[booking.id]);await client.query("UPDATE holds SET status='CONFIRMED',updated_at=now() WHERE id=$1",[request.params.id]);await client.query('DELETE FROM seat_claims WHERE hold_id=$1',[request.params.id]);const confirmed=toBooking(await getBooking(client,booking.id,request.user.id));const body={reservation:confirmed};await client.query("UPDATE idempotency_records SET response_status=200,response_body=$1 WHERE user_id=$2 AND operation='CONFIRM_HOLD' AND key=$3",[body,request.user.id,key]);return body})
+        ON CONFLICT(booking_id,event_seat_id) DO NOTHING`,[booking.id,request.params.id]);await client.query("UPDATE bookings SET status='CONFIRMED',updated_at=now() WHERE id=$1",[booking.id]);await client.query("UPDATE holds SET status='CONFIRMED',updated_at=now() WHERE id=$1",[request.params.id]);await client.query('DELETE FROM seat_claims WHERE hold_id=$1',[request.params.id]);const confirmed=toBooking(await getBooking(client,booking.id,request.user.id));const body={reservation:confirmed};await client.query("UPDATE idempotency_records SET response_status=200,response_body=$1 WHERE user_id=$2 AND operation='CONFIRM_HOLD' AND key=$3",[body,request.user.id,key]);await enqueueSeatChange(client,confirmed.event.id,'booking-confirmed');return body})
     if(!result)return response.status(404).json({code:'HOLD_NOT_FOUND',message:'The hold could not be found.'});broadcastSeatChange(result.reservation.event.id,'booking-confirmed');response.json(result)}catch(error){next(error)}})
 
 holdsRouter.get('/active/current',async(request,response,next)=>{
@@ -69,7 +70,7 @@ holdsRouter.get('/:id',async(request,response,next)=>{
 })
 
 holdsRouter.delete('/:id',async(request,response,next)=>{
-  try{const released=await withTransaction(async client=>{await expireHolds(client);const result=await client.query("SELECT h.id,h.status,e.slug FROM holds h JOIN events e ON e.id=h.event_id WHERE h.id=$1 AND h.user_id=$2 FOR UPDATE OF h",[request.params.id,request.user.id]);if(!result.rowCount)return null;if(result.rows[0].status==='ACTIVE'){await client.query('DELETE FROM seat_claims WHERE hold_id=$1',[request.params.id]);await client.query("UPDATE holds SET status='RELEASED',updated_at=now() WHERE id=$1",[request.params.id])}return{eventId:result.rows[0].slug,changed:result.rows[0].status==='ACTIVE'}})
+  try{const released=await withTransaction(async client=>{await expireHolds(client);const result=await client.query("SELECT h.id,h.status,e.slug FROM holds h JOIN events e ON e.id=h.event_id WHERE h.id=$1 AND h.user_id=$2 FOR UPDATE OF h",[request.params.id,request.user.id]);if(!result.rowCount)return null;if(result.rows[0].status==='ACTIVE'){await client.query('DELETE FROM seat_claims WHERE hold_id=$1',[request.params.id]);await client.query("UPDATE holds SET status='RELEASED',updated_at=now() WHERE id=$1",[request.params.id]);await enqueueSeatChange(client,result.rows[0].slug,'hold-released')}return{eventId:result.rows[0].slug,changed:result.rows[0].status==='ACTIVE'}})
     if(!released)return response.status(404).json({code:'HOLD_NOT_FOUND',message:'The hold could not be found.'});if(released.changed)broadcastSeatChange(released.eventId,'hold-released');response.status(204).end()
   }catch(error){next(error)}
 })

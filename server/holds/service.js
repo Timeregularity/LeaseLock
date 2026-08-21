@@ -1,9 +1,11 @@
 import { createHash } from 'node:crypto'
 import { findEvent } from '../events/queries.js'
+import { enqueueSeatChange } from '../realtime/outbox.js'
 
 export function requestHash(value) { return createHash('sha256').update(JSON.stringify(value)).digest('hex') }
 
 export async function expireHolds(client) {
+  const events=await client.query("SELECT DISTINCT e.slug FROM holds h JOIN events e ON e.id=h.event_id WHERE h.status='ACTIVE' AND h.expires_at<=now()")
   const claims=await client.query('DELETE FROM seat_claims WHERE expires_at<=now() RETURNING hold_id')
   const expired=await client.query("UPDATE holds SET status='EXPIRED',updated_at=now() WHERE status='ACTIVE' AND expires_at<=now() RETURNING id")
   const ids=[...new Set([...claims.rows,...expired.rows].map(row=>row.hold_id||row.id))]
@@ -12,6 +14,7 @@ export async function expireHolds(client) {
     await client.query("UPDATE payments p SET status='EXPIRED',updated_at=now() FROM bookings b WHERE p.booking_id=b.id AND b.source_hold_id=ANY($1::uuid[]) AND p.status IN('CREATED','PROCESSING')",[ids])
     await client.query("UPDATE bookings SET status='PAYMENT_FAILED',updated_at=now() WHERE source_hold_id=ANY($1::uuid[]) AND status='PENDING_PAYMENT'",[ids])
   }
+  for(const event of events.rows)await enqueueSeatChange(client,event.slug,'hold-expired')
   return ids.length
 }
 

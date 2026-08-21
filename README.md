@@ -264,7 +264,23 @@ npm.cmd run test:server
 npm.cmd run test:frontend
 npm.cmd run test:integration
 npm.cmd run test:load
+npm.cmd run test:k6:read
+npm.cmd run test:k6:contention
 npm.cmd run build
+```
+
+For larger, repeatable benchmarks, install [Grafana k6](https://grafana.com/docs/k6/latest/), start the API against PostgreSQL, and set `BASE_URL` when the API is not local. The read test ramps from 10 to 250 requests per second and fails when error rate exceeds 1% or p95 latency exceeds 500 ms. The contention test uses the protected administrator demonstration to launch up to 50 simultaneous seat claims and verifies that exactly one wins.
+
+```powershell
+$env:BASE_URL = 'http://localhost:8080'
+npm.cmd run test:k6:read
+$env:ADMIN_EMAIL = 'admin@leaselock.local'
+$env:ADMIN_PASSWORD = 'Admin123!'
+$env:CONTENDERS = '50'
+$env:SEAT_ID = 'A1' # choose an AVAILABLE seat from /v1/events/techfest-live/seats
+$env:SEAT_IDS = 'A1,A2,A3,A4,A5' # optional: rotate across clean seats for repeated races
+$env:RUNS = '1' # repeat the 50-contender race; 100 runs = 5,000 competing claims
+npm.cmd run test:k6:contention
 ```
 
 Current verified baseline:
@@ -330,6 +346,10 @@ These boundaries are documented intentionally so the demonstrated guarantees rem
 
 - [Product requirements](docs/requirements.md)
 - [Operations guide](docs/operations.md)
+
+## Free-tier deployment
+
+The API can be deployed to Render and the Vite frontend to Vercel, with Neon providing PostgreSQL. Set `DATABASE_URL` and `CLIENT_ORIGIN` in Render, and set `VITE_API_ORIGIN` in Vercel to the Render API URL. Render free services may sleep when idle, so the first request after inactivity can be slower.
 
 ## Interview discussion points
 

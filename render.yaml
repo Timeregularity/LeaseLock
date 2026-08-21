@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: leaselock-api
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: node server/db/migrate.js && node server/index.js
+    healthCheckPath: /v1/health/ready
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        sync: false
+      - key: CLIENT_ORIGIN
+        sync: false

@@ -12,6 +12,7 @@ import { paymentsRouter } from './routes/payments.js'
 import { bookingsRouter } from './routes/bookings.js'
 import { waitlistRouter } from './routes/waitlist.js'
 import { auditSuccessfulMutations,csrfOriginCheck,requestContext } from './middleware/operations.js'
+import { withRequestStore } from './middleware/request-store.js'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -20,6 +21,7 @@ export function createApp() {
 
   app.disable('x-powered-by')
   app.set('trust proxy', 1)
+  app.use(withRequestStore)
   app.use(requestContext)
   app.use(helmet())
   app.use(cors({ origin: config.clientOrigin, credentials: true }))

@@ -18,12 +18,15 @@ const statusMessages = {
   500: 'The server could not complete the request.'
 }
 
+const apiOrigin = String(import.meta.env.VITE_API_ORIGIN || '').replace(/\/$/, '')
+export function apiUrl(url) { return `${apiOrigin}${url}` }
+
 export async function apiRequest(url, options = {}) {
   const headers = new Headers(options.headers || {})
   headers.set('Accept', 'application/json')
   if (options.body && !(options.body instanceof FormData)) headers.set('Content-Type', 'application/json')
   try {
-    const response = await fetch(url, { credentials: 'same-origin', ...options, headers })
+    const response = await fetch(apiUrl(url), { credentials: 'include', ...options, headers })
     const payload = response.headers.get('content-type')?.includes('application/json') ? await response.json() : null
     if (!response.ok) {
       if (response.status === 401 && !url.endsWith('/auth/login')) window.dispatchEvent(new Event('leaselock:unauthorized'))
