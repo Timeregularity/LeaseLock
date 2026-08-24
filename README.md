@@ -1,122 +1,90 @@
 <div align="center">
 
-# LeaseLock
+# LEASELOCK
 
-### Concurrency-safe ticket booking, built around one non-negotiable rule:
-### one seat, one winner.
+### The seat is not yours until the database says it is.
 
-[![React](https://img.shields.io/badge/React-19-0B2B26?style=flat-square&logo=react&logoColor=white)](https://react.dev/)
-[![Node.js](https://img.shields.io/badge/Node.js-Express-163832?style=flat-square&logo=nodedotjs&logoColor=white)](https://expressjs.com/)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-235347?style=flat-square&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
-[![Docker](https://img.shields.io/badge/Docker-Compose-235347?style=flat-square&logo=docker&logoColor=white)](https://www.docker.com/)
-[![Tests](https://img.shields.io/badge/automated_tests-passing-8EB69B?style=flat-square)](#verification)
+<p>Concurrency-safe event reservations for the moment when one seat has more than one future.</p>
 
-**A production-style event reservation platform that resolves simultaneous seat requests atomically, synchronizes availability in real time, and keeps every critical booking decision on the server.**
+[![React 19](https://img.shields.io/badge/React-19-9DE2C0?style=for-the-badge&logo=react&logoColor=071714&labelColor=0B2B26)](https://react.dev/)
+[![Express 5](https://img.shields.io/badge/Express-5-9DE2C0?style=for-the-badge&logo=express&logoColor=071714&labelColor=0B2B26)](https://expressjs.com/)
+[![PostgreSQL 17](https://img.shields.io/badge/PostgreSQL-17-9DE2C0?style=for-the-badge&logo=postgresql&logoColor=071714&labelColor=0B2B26)](https://www.postgresql.org/)
+[![Docker](https://img.shields.io/badge/Docker-Compose-9DE2C0?style=for-the-badge&logo=docker&logoColor=071714&labelColor=0B2B26)](https://www.docker.com/)
 
-[Explore the architecture](#architecture) · [Run locally](#run-locally) · [Understand seat contention](#how-seat-contention-is-resolved) · [Review the API](#api-surface)
+**A production-style ticket reservation platform built around one invariant: one event seat, one winner.**
+
+[Run it](#run-locally) · [See the architecture](#architecture) · [Test contention](#verification) · [Read the operations guide](docs/operations.md)
 
 </div>
 
----
+<br>
 
-## Why LeaseLock exists
+> [!IMPORTANT]
+> LeaseLock is a portfolio-grade reservation system. Checkout and refunds are deterministic simulations; no real money or banking credentials are processed.
 
-Most ticket-booking demos stop at a seat grid and a checkout form. LeaseLock focuses on the difficult part: **what happens when many customers want the same seat at the same moment?**
+## The premise
 
-The interface never declares a seat won. It submits an intent; PostgreSQL decides the winner inside a transaction. Once committed, the API pushes the authoritative inventory change to every connected seat map using Server-Sent Events.
+Most booking demos are polished until two customers click the same seat. LeaseLock starts there.
 
-The result is a complete portfolio system covering authentication, inventory, temporary holds, mock checkout, cancellations, refunds, waitlists, administration, observability, testing, and containerized delivery.
+The React client submits intent. The Express API validates it. PostgreSQL locks the relevant rows and commits the winner inside a transaction. Only after the database has decided does the server broadcast the new inventory state to connected clients.
 
-## Built in 11 focused days
+That narrow order of authority is the whole point:
 
-LeaseLock was designed and implemented locally over eleven focused development days, then prepared for publication as a complete repository. The GitHub publication date therefore represents when the project was shared—not the entire development period.
-
-| Day | Focus | What was created | Engineering outcome |
-|---:|---|---|---|
-| **01** | Product definition | Roles, booking journey, cancellation policy, hold duration, scope, and acceptance criteria | Established precise rules before implementation |
-| **02** | Backend foundation | Express API, middleware, versioned routes, health checks, configuration, and error responses | Created a stable server foundation |
-| **03** | Database and Docker | PostgreSQL 17, Docker Compose, persistent storage, migrations, seed data, and readiness checks | Replaced temporary state with durable infrastructure |
-| **04** | Authentication | Registration, login, logout, bcrypt password hashing, HTTP-only cookies, sessions, and role authorization | Secured customer and administrator access |
-| **05** | Event inventory | Event discovery, event details, assigned seats, sections, prices, and administrator inventory management | Connected the booking interface to live PostgreSQL data |
-| **06** | Reservation engine | Transactional seat claims, five-minute backend holds, idempotency, deterministic row locking, and expiry processing | Guaranteed exactly one winner for simultaneous requests |
-| **07** | Multi-seat experience | Replaced the original one-seat restriction with one grouped hold containing up to six seats | Made the booking flow practical for families and groups |
-| **08** | Immediate live selection | Made every seat click create or update the backend hold and introduced Server-Sent Events | Other customers see held seats without manual refresh |
-| **09** | Recovery and checkout | Added active-hold recovery, backend-only expiration, mock payments, retries, confirmation, cancellation, and refunds | Made refreshes, network uncertainty, and payment outcomes recoverable |
-| **10** | Platform capabilities | Added waitlist promotion, administrator metrics, audit records, structured logging, security controls, and concurrency demonstration | Completed the customer and operational workflows |
-| **11** | Verification and delivery | Added backend, frontend, integration and load tests, production build, Docker image, CI, operations guide, and placement-focused documentation | Produced a reproducible and demonstrable portfolio release |
-
-### Development progression
-
-```mermaid
-flowchart LR
-    D1[Day 1<br/>Requirements] --> D2[Day 2<br/>API foundation]
-    D2 --> D3[Day 3<br/>PostgreSQL + Docker]
-    D3 --> D4[Day 4<br/>Authentication]
-    D4 --> D5[Day 5<br/>Event inventory]
-    D5 --> D6[Day 6<br/>Safe seat claims]
-    D6 --> D7[Day 7<br/>Grouped holds]
-    D7 --> D8[Day 8<br/>Real-time seats]
-    D8 --> D9[Day 9<br/>Recovery + checkout]
-    D9 --> D10[Day 10<br/>Admin + operations]
-    D10 --> D11[Day 11<br/>Tests + delivery]
+```text
+Browser intent  ->  API validation  ->  PostgreSQL transaction  ->  committed inventory  ->  live update
 ```
 
-The implementation was iterative. Important improvements—multi-seat grouping, immediate server-side selection, live inventory synchronization, active-hold recovery, and backend-only expiration—were introduced after testing earlier versions and identifying where customers could experience conflicts or become stuck.
+The result is a complete reservation journey with authentication, temporary holds, grouped multi-seat booking, simulated checkout, cancellations, refunds, waitlists, administration, observability, and repeatable verification.
 
-## Product experience
+## Product at a glance
 
-| Customer journey | Administrative control |
-|---|---|
-| Browse published events and live availability | Create and update events |
-| Select up to six seats in one grouped hold | Configure and inspect seat inventory |
-| See contested seats change in real time | Monitor active holds and confirmed bookings |
-| Recover an active hold after refresh or reconnect | Review operational metrics and audit activity |
-| Simulate payment success, failure, cancellation, or delay | Run a protected concurrency demonstration |
-| Cancel eligible seats and receive simulated refunds | Verify the single-winner invariant against PostgreSQL |
-| Join an ordered waitlist and receive hold offers | Manage the platform through role-protected routes |
+| For customers                               | For operators                      | Under the surface                       |
+| ------------------------------------------- | ---------------------------------- | --------------------------------------- |
+| Browse published events and availability    | Create and edit events             | PostgreSQL transactions and constraints |
+| Hold 1-6 seats together for five minutes    | Inspect inventory and live holds   | Server-Sent Events for seat updates     |
+| Recover an active hold after refresh        | Review metrics, audits, and health | Idempotent critical writes              |
+| Checkout, cancel, and see simulated refunds | Run a protected race demonstration | Background expiry and waitlist jobs     |
+| Join an ordered waitlist                    | Work through role-protected routes | HTTP-only sessions and rate limits      |
 
-## What makes it technically interesting
+## Why it is interesting
 
-- **Immediate server-side claims.** Selecting a seat creates or updates a real grouped hold before payment begins.
-- **Exactly one winner.** Row locks, transactions, and a unique seat-claim invariant prevent double allocation.
-- **Real-time inventory.** Server-Sent Events notify every open seat map immediately after an authoritative change.
-- **Backend-owned expiration.** PostgreSQL timestamps and a background worker control hold expiry; the browser never decides validity.
-- **Hold recovery.** Refreshing, reopening, or reconnecting restores the customer's current active hold.
-- **Atomic multi-seat booking.** Up to six seats share one hold, one expiry, and one booking lifecycle.
-- **Idempotent critical writes.** Retried hold and confirmation requests cannot create duplicate effects.
-- **Secure sessions.** Opaque, database-backed session tokens are delivered through HTTP-only cookies.
-- **Operational depth.** Health probes, structured logs, request IDs, audit records, rate limiting, CI, Docker, and load testing are included.
+- **The frontend never owns availability.** A countdown can inform the user, but only the backend can accept or reject a hold.
+- **A group is atomic.** A customer can hold up to six seats from one event, and the request succeeds only when every seat is available.
+- **Races have a deterministic outcome.** Conflicting requests are serialized by row locks and protected by unique database constraints.
+- **Live updates are authoritative signals, not authority.** SSE keeps other seat maps fresh while PostgreSQL remains the source of truth.
+- **Retries are expected.** Idempotency keys prevent uncertain network retries from duplicating holds, payments, confirmations, or cancellations.
+- **Recovery is part of the journey.** Reloading or reconnecting restores the customer's active hold instead of leaving a reservation in limbo.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    Browser[React client] -->|REST + HTTP-only cookie| API[Express API]
-    API -->|transactions and row locks| DB[(PostgreSQL 17)]
-    DB --> Worker[Expiry and waitlist workers]
-    API -->|Server-Sent Events| Browser
-    Worker --> DB
-
-    subgraph Authority["Server authority"]
-      API
-      Worker
-      DB
-    end
+    UI[React 19 + Vite] -->|REST /v1| API[Express 5 API]
+    UI -.->|SSE seat events| API
+    API -->|transactions, locks, constraints| DB[(PostgreSQL 17)]
+    API --> Jobs[Expiry, cleanup, outbox, waitlist jobs]
+    Jobs --> DB
+    API --> Logs[Request IDs, JSON logs, audit records]
 ```
 
-The React application owns presentation and transient interaction state. Express owns authentication, authorization, validation, and workflow orchestration. PostgreSQL owns allocation correctness and durable state.
+The frontend owns presentation and transient interaction state. Express owns authentication, authorization, validation, orchestration, and real-time delivery. PostgreSQL owns durable state and allocation correctness.
 
-### Core data lifecycle
+### The reservation lifecycle
 
-```text
-AVAILABLE → ACTIVE HOLD → PENDING PAYMENT → CONFIRMED BOOKING
-     ↑            │               │                  │
-     └────────────┴── expiry ─────┴── failure ───────┴── cancellation
+```mermaid
+stateDiagram-v2
+    [*] --> AVAILABLE
+    AVAILABLE --> ACTIVE_HOLD: atomic claim
+    ACTIVE_HOLD --> PENDING_PAYMENT: checkout
+    PENDING_PAYMENT --> CONFIRMED: mock payment succeeds
+    PENDING_PAYMENT --> ACTIVE_HOLD: payment fails or retries
+    ACTIVE_HOLD --> AVAILABLE: release or expiry
+    CONFIRMED --> CANCELLED: customer cancels in time
+    CANCELLED --> AVAILABLE: seat released
+    CONFIRMED --> EVENT_CANCELLED: event is cancelled
 ```
 
-## How seat contention is resolved
-
-When two customers click the same seat, visual arrival time is irrelevant. The first request that successfully commits the database claim wins.
+### What happens in a race?
 
 ```mermaid
 sequenceDiagram
@@ -125,87 +93,91 @@ sequenceDiagram
     participant DB as PostgreSQL
     participant B as Customer B
 
-    par Competing requests
-      A->>API: Select seat A3
-      B->>API: Select seat A3
+    par Same-seat requests
+        A->>API: Select A3
+        B->>API: Select A3
     end
     API->>DB: Transaction A locks and claims A3
-    DB-->>API: Claim committed
+    DB-->>API: Commit: winner
     API->>DB: Transaction B checks A3
-    DB-->>API: Conflict: seat already claimed
+    DB-->>API: Conflict: already claimed
     API-->>A: Hold created
     API-->>B: 409 SEATS_UNAVAILABLE
-    API-->>A: Push authoritative inventory update
-    API-->>B: Push authoritative inventory update
+    API-->>A: Broadcast inventory change
+    API-->>B: Broadcast inventory change
 ```
 
-This behavior is protected at multiple layers:
+The guarantee is layered:
 
-1. Event-seat rows are locked in deterministic order.
+1. Requested seats are locked in deterministic order.
 2. Active claims are checked inside the same transaction.
 3. `seat_claims.event_seat_id` is unique.
 4. The losing request receives a stable conflict response.
 5. Automated contention tests verify that exactly one claim survives.
 
+## Customer journeys
+
+1. A guest discovers a published event and inspects public seat availability.
+2. The customer registers or signs in through an opaque, HTTP-only session.
+3. The seat map creates or updates one grouped hold of up to six seats.
+4. The customer checks out through the deterministic payment simulation.
+5. A successful confirmation creates one reservation and stores a seat/event snapshot.
+6. The customer can view history, recover an active hold, cancel within the two-hour cutoff, or join a waitlist.
+
+Administrators get event and seat management, dashboard statistics, audit visibility, and a protected concurrency demo. Admin access never bypasses the reservation invariant.
+
 ## Technology
 
-| Layer | Technology | Responsibility |
-|---|---|---|
-| Interface | React 19, React Router, Vite | Customer and administrator experiences |
-| API | Node.js, Express 5 | Workflows, validation, authorization, live events |
-| Database | PostgreSQL 17, raw SQL migrations | Transactions, constraints, durable state |
-| Authentication | bcryptjs, opaque sessions, HTTP-only cookies | Password security and session revocation |
-| Delivery | Docker, Docker Compose, GitHub Actions | Reproducible builds and automated verification |
-| Testing | Node test runner, Vitest, Testing Library | Unit, integration, concurrency, UI, and load checks |
+| Layer     | Stack                                            | Role                                      |
+| --------- | ------------------------------------------------ | ----------------------------------------- |
+| Interface | React 19, React Router 7, Vite 7                 | Customer and admin experiences            |
+| API       | Node.js, Express 5                               | Workflows, validation, authorization, SSE |
+| Data      | PostgreSQL 17, raw SQL migrations                | Durable state, locking, constraints       |
+| Security  | bcryptjs, HTTP-only cookies, Helmet, rate limits | Passwords, sessions, abuse controls       |
+| Delivery  | Docker, Docker Compose, Render, Vercel           | Local and free-tier deployment paths      |
+| Testing   | Node test runner, Vitest, Testing Library, k6    | API, UI, integration, load, contention    |
 
 ## Run locally
 
-### Requirements
+### Prerequisites
 
 - Node.js 20 or newer
-- Docker Desktop with the Docker engine running
+- Docker Desktop with the engine running
 - PowerShell, Command Prompt, or a POSIX-compatible shell
 
-### 1. Start PostgreSQL
+### Development mode
 
 ```powershell
 docker compose up -d postgres
-```
-
-### 2. Install and prepare the application
-
-```powershell
 npm.cmd install
 npm.cmd run db:migrate
 npm.cmd run db:seed
 ```
 
-### 3. Start the API
+Start the API in one terminal:
 
 ```powershell
 npm.cmd run dev:server
 ```
 
-### 4. Start the React application
-
-In a second terminal:
+Start Vite in a second terminal:
 
 ```powershell
 npm.cmd run dev
 ```
 
-Open **http://localhost:3000**. The API runs at **http://localhost:8080**, and Vite proxies `/v1` requests during development.
+Open [http://localhost:3000](http://localhost:3000). Vite proxies `/v1` to the API at `http://localhost:8080`.
 
-### Demo accounts
+### Local demo accounts
 
-| Role | Email | Password |
-|---|---|---|
-| Administrator | `admin@leaselock.local` | `Admin123!` |
-| Customer | `customer@leaselock.local` | `Customer123!` |
+| Role          | Email                      | Password       |
+| ------------- | -------------------------- | -------------- |
+| Administrator | `admin@leaselock.local`    | `Admin123!`    |
+| Customer      | `customer@leaselock.local` | `Customer123!` |
 
-These credentials are for local demonstrations only. Override them through environment variables and never use them in a public deployment.
+These credentials are for local demonstrations only. Never enable them in a public deployment.
 
-## Run the complete production-style stack
+### Production-style Docker stack
 
 ```powershell
 docker compose build api
@@ -214,162 +186,146 @@ docker compose run --rm api node server/db/seed.js
 docker compose up -d
 ```
 
-The compiled React application and API are then available together at **http://localhost:8080**.
+The API and compiled React application are then served together at [http://localhost:8080](http://localhost:8080).
 
-Health endpoints:
+Health probes:
 
-- `GET /v1/health` — process liveness
-- `GET /v1/health/ready` — API and PostgreSQL readiness
+- `GET /v1/health` checks process liveness.
+- `GET /v1/health/ready` checks API and PostgreSQL readiness.
 
-## API surface
+## API map
 
-| Area | Representative endpoints |
-|---|---|
-| Authentication | `POST /v1/auth/register`, `POST /v1/auth/login`, `POST /v1/auth/logout`, `GET /v1/auth/me` |
-| Events | `GET /v1/events`, `GET /v1/events/:id`, `GET /v1/events/:id/seats` |
-| Live inventory | `GET /v1/events/:id/seat-events` |
-| Holds | `POST /v1/holds`, `PUT /v1/holds/:id/seats`, `GET /v1/holds/active/current`, `DELETE /v1/holds/:id` |
-| Checkout | `POST /v1/holds/:id/checkout`, `POST /v1/holds/:id/confirm` |
-| Payments | `POST /v1/payments`, `POST /v1/payments/:id/simulate`, `GET /v1/payments/:id` |
-| Bookings | `GET /v1/bookings`, `GET /v1/bookings/:id`, `POST /v1/bookings/:id/cancel` |
-| Waitlist | `POST /v1/waitlist`, `GET /v1/waitlist`, `DELETE /v1/waitlist/:id` |
-| Administration | `/v1/admin/events`, `/v1/admin/seats`, `/v1/admin/dashboard`, `/v1/admin/concurrency-demo` |
+The API is versioned under `/v1`, uses JSON, and returns stable machine-readable error codes alongside safe messages.
 
-Every protected operation verifies session identity, ownership, or role on the server. Error responses include a stable machine-readable `code` and a safe human-readable `message`.
+| Area           | Representative routes                                                                   |
+| -------------- | --------------------------------------------------------------------------------------- |
+| Auth           | `POST /auth/register`, `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`          |
+| Events         | `GET /events`, `GET /events/:id`, `GET /events/:id/seats`                               |
+| Live inventory | `GET /events/:id/seat-events`                                                           |
+| Holds          | `POST /holds`, `PUT /holds/:id/seats`, `GET /holds/active/current`, `DELETE /holds/:id` |
+| Checkout       | `POST /holds/:id/checkout`, `POST /holds/:id/confirm`                                   |
+| Payments       | `POST /payments`, `POST /payments/:id/simulate`, `GET /payments/:id`                    |
+| Bookings       | `GET /bookings`, `GET /bookings/:id`, `POST /bookings/:id/cancel`                       |
+| Waitlist       | `POST /waitlist`, `GET /waitlist`, `DELETE /waitlist/:id`                               |
+| Admin          | `/admin/events`, `/admin/seats`, `/admin/dashboard`, `/admin/concurrency-demo`          |
 
 ## Reservation rules
 
-- A customer may hold **one group of one to six seats** at a time.
-- Every seat in a group belongs to the same event and expires together.
-- A hold lasts **five minutes**, measured and enforced by the backend.
-- Selecting additional seats does not reset the expiry.
-- The seat map recovers an existing active hold after refresh or reconnect.
+- One customer may have one active grouped hold at a time.
+- A group contains 1-6 seats from the same event.
+- Holds last five minutes from the server-recorded creation time.
+- Adding seats does not reset the expiry.
+- Expiry is enforced by backend jobs, never by browser clocks.
 - Confirmation requires a successful mock payment.
-- Cancellation is allowed until **two hours before the event**.
-- Partial cancellation records a proportional simulated refund.
-- Expired holds and unsuccessful payments never create confirmed inventory.
+- Cancellation is allowed until two hours before the event.
+- Partial cancellation produces a proportional simulated refund.
+- Expired holds and failed payments never create confirmed inventory.
 
 ## Verification
 
-Run the complete automated suite:
+Run the complete suite:
 
 ```powershell
 npm.cmd run test:all
 ```
 
-Or run each layer independently:
+Run individual layers:
 
 ```powershell
 npm.cmd run test:server
 npm.cmd run test:frontend
 npm.cmd run test:integration
 npm.cmd run test:load
-npm.cmd run test:k6:read
-npm.cmd run test:k6:contention
+npm.cmd run check:invariants
 npm.cmd run build
 ```
 
-For larger, repeatable benchmarks, install [Grafana k6](https://grafana.com/docs/k6/latest/), start the API against PostgreSQL, and set `BASE_URL` when the API is not local. The read test ramps from 10 to 250 requests per second and fails when error rate exceeds 1% or p95 latency exceeds 500 ms. The contention test uses the protected administrator demonstration to launch up to 50 simultaneous seat claims and verifies that exactly one wins.
+For larger races, install [Grafana k6](https://grafana.com/docs/k6/latest/) and run the API against PostgreSQL:
 
 ```powershell
 $env:BASE_URL = 'http://localhost:8080'
 npm.cmd run test:k6:read
+
 $env:ADMIN_EMAIL = 'admin@leaselock.local'
 $env:ADMIN_PASSWORD = 'Admin123!'
 $env:CONTENDERS = '50'
-$env:SEAT_ID = 'A1' # choose an AVAILABLE seat from /v1/events/techfest-live/seats
-$env:SEAT_IDS = 'A1,A2,A3,A4,A5' # optional: rotate across clean seats for repeated races
-$env:RUNS = '1' # repeat the 50-contender race; 100 runs = 5,000 competing claims
+$env:SEAT_ID = 'A1'
 npm.cmd run test:k6:contention
 ```
 
-Current verified baseline:
+The contention script verifies the single-winner invariant. The load script supports `LOAD_TEST_URL`, `LOAD_TEST_REQUESTS`, and `LOAD_TEST_CONCURRENCY` overrides. Do not aim load tests at infrastructure without permission.
 
-| Check | Result |
-|---|---:|
-| Backend API tests | 2 passing |
-| Frontend component tests | 2 passing |
-| PostgreSQL integration tests | 16 passing |
-| Production frontend build | Passing |
-| Load run | 500 requests, 25 concurrent, 0 failures |
-| Observed load-test latency | p50 60.92 ms, p95 131.91 ms, p99 292.75 ms |
+## Security and operations
 
-Load figures describe one local run and are not presented as a universal benchmark.
+- Passwords are salted and hashed; plaintext credentials are not stored.
+- Session tokens are opaque, hashed in PostgreSQL, revocable, and sent in HTTP-only cookies.
+- Same-site cookie behavior, origin checks, Helmet, body limits, and rate limits protect mutations.
+- Ownership and administrator authorization are checked on the server.
+- Idempotency records protect retry-sensitive workflows.
+- JSON logs carry `X-Request-Id` correlation without logging credentials or unnecessary personal data.
+- Audit records preserve critical administrative and reservation actions.
+- Database constraints remain the final defense against duplicate allocation.
 
-## Project structure
+Production operations, backups, monitoring objectives, incident basics, and deployment configuration live in [docs/operations.md](docs/operations.md). Product scope and acceptance criteria live in [docs/requirements.md](docs/requirements.md).
+
+## Deployment
+
+The repository includes `Dockerfile`, `compose.yaml`, `render.yaml`, and `vercel.json` for a practical split deployment:
+
+- Deploy the API to Render with PostgreSQL provided by Neon or another managed PostgreSQL service.
+- Deploy the Vite frontend to Vercel with `VITE_API_ORIGIN` pointing to the API.
+- Configure `DATABASE_URL` and the exact HTTPS `CLIENT_ORIGIN` on the API.
+- Keep secrets in the platform secret manager and set `NODE_ENV=production`.
+
+Render free services may sleep while idle, so the first request after inactivity can be slower.
+
+## Project map
 
 ```text
 LeaseLock/
-├── src/                     React application and interface state
+├── src/                    React application, routes, pages, and styles
 ├── server/
-│   ├── routes/              Versioned REST endpoints
-│   ├── holds/               Transactional allocation engine
-│   ├── bookings/            Booking queries and lifecycle
-│   ├── realtime/            Server-Sent Events broadcaster
-│   ├── jobs/                Expiry, cleanup, and waitlist workers
-│   ├── middleware/          Auth, security, audit, and request context
-│   └── db/                  Pool, migrations, and deterministic seed
-├── scripts/                 Load-test utilities
-├── docs/                    Requirements and operations guidance
-├── .github/workflows/       Continuous integration
-├── Dockerfile               Production image
-└── compose.yaml             API and PostgreSQL stack
+│   ├── routes/             Versioned REST endpoints
+│   ├── holds/              Transactional allocation engine
+│   ├── bookings/           Booking queries and lifecycle
+│   ├── realtime/           Server-Sent Events broadcaster
+│   ├── jobs/               Expiry, cleanup, outbox, and waitlist workers
+│   ├── middleware/         Auth, security, audit, and request context
+│   └── db/                 Pool, migrations, and deterministic seed
+├── scripts/                Load tests and invariant checks
+├── docs/                   Requirements and operations guidance
+├── Dockerfile              Production image
+└── compose.yaml            API and PostgreSQL stack
 ```
 
-## Security and reliability choices
+## Honest boundaries
 
-- Passwords are salted and hashed; plaintext credentials are never stored.
-- Session tokens are opaque, hashed in PostgreSQL, revocable, and transported in HTTP-only cookies.
-- Same-site cookie behavior and origin checks protect authenticated mutations.
-- Rate limiting reduces authentication and reservation abuse.
-- Request bodies are size-limited and validated at API boundaries.
-- Resource ownership and administrator roles are checked server-side.
-- Idempotency records protect retry-sensitive operations.
-- Structured JSON logs include an `X-Request-Id` correlation value.
-- Database constraints remain the final defense against duplicate allocation.
-
-## Deliberate simulation boundaries
-
-LeaseLock is a **production-style portfolio project**, not a commercial ticketing service. Payments are deterministic simulations; no banking credentials or real money are processed.
-
-A real deployment would additionally require:
+LeaseLock demonstrates the hard correctness properties of a reservation service, but it is not a commercial ticketing platform. A real deployment would additionally need:
 
 - A payment provider with signed webhooks and reconciliation
-- Redis Pub/Sub or a durable event bus for live updates across multiple API instances
-- Managed secrets, TLS, database backups, and disaster-recovery drills
-- External monitoring, alerting, tracing, and capacity planning
-- Email or SMS delivery, QR admission, fraud controls, and compliance review
+- Redis Pub/Sub or a durable event bus for multi-instance live updates
+- Managed secrets, TLS, backups, disaster recovery, tracing, and alerting
+- Email/SMS delivery, QR admission, fraud controls, and compliance review
 
-These boundaries are documented intentionally so the demonstrated guarantees remain precise and credible.
+Naming these boundaries is intentional: the guarantees are precise because the system does not pretend its simulations are production integrations.
 
-## Documentation
+## Conversation starters
 
-- [Product requirements](docs/requirements.md)
-- [Operations guide](docs/operations.md)
+LeaseLock is built to make these engineering questions concrete:
 
-## Free-tier deployment
-
-The API can be deployed to Render and the Vite frontend to Vercel, with Neon providing PostgreSQL. Set `DATABASE_URL` and `CLIENT_ORIGIN` in Render, and set `VITE_API_ORIGIN` in Vercel to the Render API URL. Render free services may sleep when idle, so the first request after inactivity can be slower.
-
-## Interview discussion points
-
-LeaseLock is designed to support conversations about:
-
-- Why database invariants are stronger than frontend locking
-- How deterministic row locking and unique claims prevent double booking
-- Where idempotency belongs in a payment-adjacent workflow
-- Why live notifications do not replace authoritative reads
-- How hold recovery handles refreshes and uncertain network outcomes
-- How the architecture would evolve from one API instance to a distributed deployment
-
----
+- Why are database invariants stronger than frontend locking?
+- How do row locks and unique claims prevent double booking?
+- Where should idempotency live in a payment-adjacent workflow?
+- Why do live notifications never replace an authoritative read?
+- How does hold recovery handle refreshes and uncertain network outcomes?
+- What changes when one API instance becomes a distributed deployment?
 
 <div align="center">
 
-**LeaseLock treats correctness as a product feature.**
+---
 
-Built to demonstrate full-stack engineering beyond the happy path.
+### LeaseLock treats correctness as a product feature.
 
-© 2026 Timeregularity. Built as a full-stack systems engineering portfolio project.
+Built by [Timeregularity](https://github.com/Timeregularity) as a full-stack systems engineering portfolio project.
 
 </div>
