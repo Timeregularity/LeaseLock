@@ -28,7 +28,7 @@ export async function createGroupedHold(client,{userId,eventIdentifier,seatLabel
 
   const event=await findEvent(client,eventIdentifier,{shared:true})
   if(!event){const error=new Error('The event could not be found.');error.status=404;error.code='EVENT_NOT_FOUND';throw error}
-  if(event.status!=='PUBLISHED'||new Date(event.starts_at)<=new Date()||(event.booking_opens_at&&new Date(event.booking_opens_at)>new Date())||(event.booking_closes_at&&new Date(event.booking_closes_at)<=new Date())){const error=new Error('This event is not accepting bookings.');error.status=409;error.code='BOOKING_CLOSED';throw error}
+  if(event.status!=='PUBLISHED'||(event.booking_opens_at&&new Date(event.booking_opens_at)>new Date())||(event.booking_closes_at&&new Date(event.booking_closes_at)<=new Date())){const error=new Error('This event is not accepting bookings.');error.status=409;error.code='BOOKING_CLOSED';throw error}
 
   const active=await client.query("SELECT id FROM holds WHERE user_id=$1 AND status='ACTIVE' FOR UPDATE",[userId])
   if(active.rowCount){const error=new Error('You already have an active seat hold.');error.status=409;error.code='ACTIVE_HOLD_EXISTS';throw error}

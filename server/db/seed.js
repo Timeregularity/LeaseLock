@@ -7,10 +7,16 @@ const accounts = [
 ]
 
 const events = [
-  { slug:'techfest-live', name:'TechFest Live', description:'An evening of ambitious ideas, practical engineering stories, and live product demonstrations.', venue:'Main Auditorium', startsAt:'2026-08-25T13:30:00.000Z' },
-  { slug:'systems-summit', name:'Systems Summit', description:'Deep dives into distributed systems, reliability, and resilient products.', venue:'Innovation Hall', startsAt:'2026-09-02T05:00:00.000Z' },
+  { slug:'techfest-live', name:'TechFest Live', description:'An evening of ambitious ideas, practical engineering stories, and live product demonstrations.', venue:'Main Auditorium', startsAt:'2035-08-25T13:30:00.000Z' },
+  { slug:'systems-summit', name:'Systems Summit', description:'Deep dives into distributed systems, reliability, and resilient products.', venue:'Innovation Hall', startsAt:'2035-09-02T05:00:00.000Z' },
   { slug:'design-code', name:'Design × Code', description:'A focused conversation about bringing design craft and engineering discipline together.', venue:'Studio Theatre', startsAt:'2026-09-12T10:30:00.000Z' }
 ]
+
+events.push(
+  { slug:'midnight-jazz', name:'Midnight Jazz Sessions', description:'A late-night set of modern jazz, improvisation, and intimate live performances.', venue:'Riverside Pavilion', startsAt:'2035-10-04T14:30:00.000Z' },
+  { slug:'makers-market', name:'Makers Market', description:'Meet local makers, try hands-on workshops, and discover independent creative work.', venue:'City Exhibition Centre', startsAt:'2035-10-18T05:30:00.000Z' },
+  { slug:'film-under-stars', name:'Film Under the Stars', description:'An open-air cinema evening with a curated feature, food stalls, and community seating.', venue:'Lakeside Lawn', startsAt:'2035-11-08T12:30:00.000Z' }
+)
 
 async function upsertAccount(client, account) {
   const passwordHash = await bcrypt.hash(account.password, 12)
@@ -33,7 +39,7 @@ async function seed() {
     for (const event of events) {
       const eventResult = await client.query(`
         INSERT INTO events (slug, name, description, venue, starts_at, timezone, status, booking_opens_at, booking_closes_at, created_by)
-        VALUES ($1, $2, $3, $4, $5, 'Asia/Kolkata', 'PUBLISHED', now(), $5::timestamptz - interval '30 minutes', $6)
+        VALUES ($1, $2, $3, $4, $5, 'Asia/Kolkata', 'PUBLISHED', now(), now() + interval '100 years', $6)
         ON CONFLICT (slug) DO UPDATE SET
           name=excluded.name, description=excluded.description, venue=excluded.venue,
           starts_at=excluded.starts_at, timezone=excluded.timezone, status=excluded.status,

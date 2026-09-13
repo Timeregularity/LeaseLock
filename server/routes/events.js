@@ -8,7 +8,7 @@ export const eventsRouter = Router()
 eventsRouter.get('/', async (request,response,next) => {
   try {
     const result = await pool.query(`${eventSelect}
-      WHERE e.status='PUBLISHED' AND e.starts_at > now()
+      WHERE e.status='PUBLISHED'
       GROUP BY e.id ORDER BY e.starts_at ASC`)
     response.json({ events:result.rows.map(toEvent) })
   } catch(error) { next(error) }
