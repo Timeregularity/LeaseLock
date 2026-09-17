@@ -4,7 +4,7 @@ services:
     runtime: node
     plan: free
     buildCommand: npm ci && npm run build
-    startCommand: node server/db/migrate.js && node server/index.js
+    startCommand: node server/index.js
     healthCheckPath: /v1/health/ready
     envVars:
       - key: NODE_ENV
@@ -15,3 +15,4 @@ services:
         sync: false
       - key: CLIENT_ORIGIN
         sync: false
+

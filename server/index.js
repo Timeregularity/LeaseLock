@@ -5,10 +5,18 @@ import { pool } from './db/pool.js'
 import { runWaitlistPromotion } from './jobs/waitlist.js'
 import { runCleanup } from './jobs/cleanup.js'
 import { runOutboxDelivery } from './jobs/outbox.js'
+import { runMigrations } from './db/migrate.js'
 
-const server = createApp().listen(config.port, () => {
-  console.log(`LeaseLock API listening on http://localhost:${config.port}`)
+try {
+  await runMigrations()
+} catch (error) {
+  console.error('Startup migration warning:', error.message)
+}
+
+const server = createApp().listen(config.port, '0.0.0.0', () => {
+  console.log(`LeaseLock API listening on http://0.0.0.0:${config.port}`)
 })
+
 
 const expiryTimer=setInterval(()=>runHoldExpiry().catch(error=>console.error('Hold expiry job failed',error)),15_000)
 expiryTimer.unref()
