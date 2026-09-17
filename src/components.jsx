@@ -36,7 +36,12 @@ export function PageHeader({ eyebrow, heading, description, action }) {
   return <div className="page-heading d-flex flex-column flex-md-row align-items-md-end justify-content-between gap-3"><div><span className="eyebrow">{eyebrow}</span><h1>{heading}</h1>{description && <p>{description}</p>}</div>{action && <Link to={action.to} className="btn btn-primary">{action.label}</Link>}</div>
 }
 
-export function StatusBadge({ status }) { return <span className={`badge status-badge status-${status.toLowerCase().replaceAll(' ','-')}`}>{status}</span> }
+export function StatusBadge({ status }) {
+  const raw = String(status || '')
+  const normalized = raw.toLowerCase().replaceAll('_', '-').replaceAll(' ', '-')
+  const label = raw === 'PAYMENT_IN_PROGRESS' ? 'Under payment' : raw === 'HELD_OTHER' ? 'Held by other' : raw === 'HELD_SELF' ? 'Your hold' : raw.replace('_', ' ')
+  return <span className={`badge status-badge status-${normalized}`}>{label}</span>
+}
 export function Spinner({ label }) { return <><span className="spinner-border spinner-border-sm me-2" aria-hidden="true"/>{label}</> }
 
 export function NotFound() {

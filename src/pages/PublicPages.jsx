@@ -43,30 +43,285 @@ export function EventDetail() {
   return <Layout><main id="main-content" className="container page-wrap"><nav><ol className="breadcrumb"><li className="breadcrumb-item"><Link to="/events">Events</Link></li><li className="breadcrumb-item active">{event.title}</li></ol></nav><section className="detail-hero"><div className="detail-copy"><StatusBadge status={event.status}/><h1>{event.title}</h1><p className="lead">{event.description}</p><div className="detail-meta"><div><span>DATE & TIME</span><strong>{event.date} · {event.time}</strong></div><div><span>VENUE</span><strong>{event.venue}</strong></div></div></div><aside className="booking-summary"><span className="eyebrow">Booking summary</span><div className="summary-line"><span>Seats available</span><strong>{event.available} of {event.total}</strong></div><div className="summary-line"><span>Starting price</span><strong>₹{event.price}</strong></div><Link to={`/events/${event.id}/seats`} className={`btn btn-primary btn-lg w-100 ${event.available ? '' : 'disabled'}`}>Choose seats →</Link><p className="secure-note">◴ Selected seats are temporarily held before confirmation.</p></aside></section><section className="info-strip">{[['01','Choose a seat','See live server-reported availability.'],['02','Start a hold','Your countdown begins on success.'],['03','Confirm','Receive your reservation code.']].map(([number,title,text],i)=><div key={number}><span className="step-number">{number}</span><p><strong>{title}</strong><br/>{text}</p>{i<2&&<span className="step-arrow">→</span>}</div>)}</section></main></Layout>
 }
 
-function normalizeStatus(value) { const status=String(value||'').toUpperCase(); if(status==='AVAILABLE')return'available'; if(['RESERVED','CONFIRMED'].includes(status))return'reserved'; if(['HELD_BY_CURRENT_USER','HELD_SELF'].includes(status))return'held-self'; return'held-other' }
+function normalizeStatus(value) {
+  const status = String(value || '').toUpperCase()
+  if (status === 'AVAILABLE') return 'available'
+  if (['RESERVED', 'CONFIRMED'].includes(status)) return 'reserved'
+  if (['HELD_BY_CURRENT_USER', 'HELD_SELF'].includes(status)) return 'held-self'
+  if (['PAYMENT_IN_PROGRESS', 'CHECKOUT', 'UNDER_PAYMENT'].includes(status)) return 'under-payment'
+  if (['HELD', 'HELD_OTHER'].includes(status)) return 'held-other'
+  return 'held-other'
+}
+
 export function SeatSelection() {
-  const { id }=useParams(); const navigate=useNavigate(); const showToast=useToast(); const [event,setEvent]=useState(null); const [seats,setSeats]=useState([]); const [selectedIds,setSelectedIds]=useState([]); const [hold,setHold]=useState(null); const [pending,setPending]=useState('')
-  const selectedSeats=useMemo(()=>selectedIds.map(seatId=>seats.find(seat=>seat.id===seatId)).filter(Boolean),[selectedIds,seats]); const selectedTotal=selectedSeats.reduce((sum,seat)=>sum+seat.price,0); const heldIds=hold?.seatIds||[]
-  const refresh=async(silent=false)=>{try{const data=await apiRequest(`/v1/events/${id}/seats`);setSeats((data.seats||data).map(seat=>({...seat,status:heldIds.includes(seat.id)?'held-self':normalizeStatus(seat.status)})))}catch(err){if(!silent)showToast('Could not refresh availability. Displayed seats may be out of date.','error')}}
-  const recoverHold=async()=>{try{const data=await apiRequest(`/v1/holds/active/current?eventId=${encodeURIComponent(id)}`);setHold(data.hold)}catch(err){showToast('Could not recover your active selection.','error')}}
-  useEffect(()=>{apiRequest(`/v1/events/${id}`).then(data=>setEvent(displayEvent(data.event))).catch(err=>showToast(err.message,'error'));recoverHold();refresh()},[id])
-    useEffect(()=>{const stream=new EventSource(apiUrl(`/v1/events/${id}/seat-events`),{withCredentials:true});stream.addEventListener('seats-changed',()=>{recoverHold();refresh(true)});return()=>stream.close()},[id])
-  useEffect(()=>{const poll=setInterval(()=>{if(!document.hidden&&!pending){recoverHold();refresh(true)}},8000);return()=>clearInterval(poll)},[id,pending])
-  async function toggleSeat(seat){
-    if(pending||seat.status!=='available')return
-    setSelectedIds(current=>{
-      if(current.includes(seat.id))return current.filter(value=>value!==seat.id)
-      if(current.length>=6){showToast('You can select up to 6 seats.','warning','Selection limit');return current}
-      return[...current,seat.id].sort()
+  const { id } = useParams()
+  const navigate = useNavigate()
+  const showToast = useToast()
+  const [event, setEvent] = useState(null)
+  const [seats, setSeats] = useState([])
+  const [selectedIds, setSelectedIds] = useState([])
+  const [hold, setHold] = useState(null)
+  const [pending, setPending] = useState('')
+
+  const selectedSeats = useMemo(() => selectedIds.map(seatId => seats.find(seat => seat.id === seatId)).filter(Boolean), [selectedIds, seats])
+  const selectedTotal = selectedSeats.reduce((sum, seat) => sum + seat.price, 0)
+  const heldIds = hold?.seatIds || []
+
+  const refresh = async (silent = false) => {
+    try {
+      const data = await apiRequest(`/v1/events/${id}/seats`)
+      const rawSeats = data.seats || data
+      setSeats(rawSeats.map(seat => ({
+        ...seat,
+        status: normalizeStatus(seat.status)
+      })))
+    } catch (err) {
+      if (!silent) showToast('Could not refresh availability. Displayed seats may be out of date.', 'error')
+    }
+  }
+
+  const recoverHold = async () => {
+    try {
+      const data = await apiRequest(`/v1/holds/active/current?eventId=${encodeURIComponent(id)}`)
+      setHold(data.hold)
+    } catch (err) {
+      showToast('Could not recover your active selection.', 'error')
+    }
+  }
+
+  useEffect(() => {
+    apiRequest(`/v1/events/${id}`).then(data => setEvent(displayEvent(data.event))).catch(err => showToast(err.message, 'error'))
+    recoverHold()
+    refresh()
+  }, [id])
+
+  useEffect(() => {
+    const stream = new EventSource(apiUrl(`/v1/events/${id}/seat-events`), { withCredentials: true })
+    stream.addEventListener('seats-changed', () => {
+      recoverHold()
+      refresh(true)
+    })
+    return () => stream.close()
+  }, [id])
+
+  useEffect(() => {
+    const poll = setInterval(() => {
+      if (!document.hidden && !pending) {
+        recoverHold()
+        refresh(true)
+      }
+    }, 8000)
+    return () => clearInterval(poll)
+  }, [id, pending])
+
+  async function toggleSeat(seat) {
+    if (pending) return
+    if (seat.status === 'under-payment') {
+      showToast(`Seat ${seat.id} is currently under payment by another customer. It will release if checkout is not completed.`, 'warning', 'Under payment')
+      return
+    }
+    if (seat.status === 'held-other') {
+      showToast(`Seat ${seat.id} is temporarily held by another customer.`, 'warning', 'Seat held')
+      return
+    }
+    if (seat.status === 'reserved') {
+      showToast(`Seat ${seat.id} is already reserved.`, 'info', 'Seat reserved')
+      return
+    }
+    if (seat.status !== 'available' && seat.status !== 'held-self') return
+    setSelectedIds(current => {
+      if (current.includes(seat.id)) return current.filter(value => value !== seat.id)
+      if (current.length >= 6) {
+        showToast('You can select up to 6 seats.', 'warning', 'Selection limit')
+        return current
+      }
+      return [...current, seat.id].sort()
     })
   }
-  async function createHold(){if(pending||hold||!selectedIds.length)return;const requestedIds=[...selectedIds].sort();const logical=`${id}:${requestedIds.join(',')}`;setPending('hold');try{const result=await apiRequest('/v1/holds',{method:'POST',headers:{'Idempotency-Key':idempotencyKey('hold',logical)},body:JSON.stringify({eventId:id,seatIds:requestedIds})});clearIdempotencyKey('hold',logical);setHold({...result,seatIds:result.seatIds||requestedIds,totalPrice:result.totalPrice??selectedTotal});setSeats(items=>items.map(item=>requestedIds.includes(item.id)?{...item,status:'held-self'}:item));setSelectedIds([]);showToast(`${requestedIds.length} seat${requestedIds.length===1?' is':'s are'} held for you.`)}catch(err){const unavailable=err.details?.unavailableSeatIds||err.details?.seatIds||[];if(err.status===409||['SEATS_UNAVAILABLE','SEAT_ALREADY_HELD','SEAT_ALREADY_RESERVED'].includes(err.code)){setSeats(items=>items.map(item=>unavailable.includes(item.id)?{...item,status:'held-other'}:item));setSelectedIds(current=>current.filter(seatId=>!unavailable.includes(seatId)));showToast(unavailable.length?`Seat${unavailable.length===1?'':'s'} ${unavailable.join(', ')} ${unavailable.length===1?'was':'were'} just taken. Review your selection and try again.`:'One or more selected seats were just taken. Refresh and try again.','warning','Seats unavailable');refresh(true)}else showToast(err.message,'error')}finally{setPending('')}}
-  async function confirm(){if(pending||!selectedIds.length)return;const requestedIds=[...selectedIds].sort();const logical=`${id}:${requestedIds.join(',')}`;setPending('confirm');try{const created=await apiRequest('/v1/holds',{method:'POST',headers:{'Idempotency-Key':idempotencyKey('hold',logical)},body:JSON.stringify({eventId:id,seatIds:requestedIds})});clearIdempotencyKey('hold',logical);const checkout=await apiRequest(`/v1/holds/${created.id}/checkout`,{method:'POST'});navigate(`/checkout/${checkout.bookingId}`,{state:{hold:created}})}catch(err){const unavailable=err.details?.unavailableSeatIds||[];if(err.status===409||err.code==='SEATS_UNAVAILABLE'){setSeats(items=>items.map(item=>unavailable.includes(item.id)?{...item,status:'held-other'}:item));setSelectedIds(current=>current.filter(seatId=>!unavailable.includes(seatId)));showToast(unavailable.length?`Seat${unavailable.length===1?'':'s'} ${unavailable.join(', ')} ${unavailable.length===1?'was':'were'} just taken. Choose another seat.`:'One or more selected seats are no longer available.','warning','Seats unavailable');await refresh(true)}else showToast(err.message,'error')}finally{setPending('')}}
-  async function release(){if(!hold)return;setPending('release');try{await apiRequest(`/v1/holds/${hold.id}`,{method:'DELETE',headers:{'Idempotency-Key':idempotencyKey('release',hold.id)}});clearIdempotencyKey('release',hold.id);const releasedIds=hold.seatIds||[];setHold(null);setSeats(items=>items.map(item=>releasedIds.includes(item.id)?{...item,status:'available'}:item));await refresh(true);showToast('Seats released.')}catch(err){showToast(err.message,'error')}finally{setPending('')}}
-  if(!event)return null
-  return <Layout><main id="main-content" className="container-fluid seat-page"><div className="container seat-header"><div><Link className="back-link" to={`/events/${id}`}>← Event details</Link><h1>Choose your seats</h1><p><strong>{event.title}</strong><span> · </span>{event.date}, {event.time}<span> · </span>{event.venue}</p></div><button className="btn btn-outline-secondary btn-sm" onClick={()=>refresh()} disabled={!!pending}>↻ Refresh seats</button></div><div className="container seat-layout"><section className="seat-map-card"><div className="seat-map-top"><div><h2>Main auditorium</h2><p>Choose up to 6 seats. They remain available to everyone until you continue to payment.</p></div><span className="last-updated"><span/> Live availability</span></div><div className="stage"><span>STAGE</span></div><div className="seat-map-scroll">{['A','B','C','D'].map((section,row)=><div className="seat-section" key={section}><div className="section-label"><span>SECTION {section}</span><small>{row<2?'Premium':'Standard'}</small></div><div className="seat-row">{seats.filter(seat=>seat.section===section).map(seat=>{const selected=selectedIds.includes(seat.id);return <button key={seat.id} className={`seat seat-${selected?'selected':seat.status}`} disabled={!!pending||['held-other','reserved'].includes(seat.status)} onClick={()=>toggleSeat(seat)} aria-pressed={selected} aria-label={`Seat ${seat.id}, ${selected?'selected':seat.status}, ₹${seat.price}`}><span className="seat-number">{seat.id}</span><span className="seat-price">₹{seat.price}</span><span className="seat-state">{selected?'Selected':seat.status==='held-other'?'Selected by another user':seat.status==='reserved'?'Reserved':'Available'}</span></button>})}</div></div>)}</div><div className="seat-legend"><span><i className="legend-swatch available"/>✓ Available</span><span><i className="legend-swatch selected"/>✓ Your selection</span><span><i className="legend-swatch held-other"/>⌛ Selected by another user</span><span><i className="legend-swatch reserved"/>× Reserved</span></div></section><aside className="hold-panel" aria-live="polite"><div className="hold-empty"><div className="hold-empty-icon">⌁</div><h2>{selectedIds.length?`${selectedIds.length} seat${selectedIds.length===1?'':'s'} selected`:'No seats selected'}</h2><p>{selectedIds.length?'Your seats will be held for five minutes only after you proceed to payment.':'Choose available seats, then proceed to payment to start your five-minute hold.'}</p>{selectedIds.length>0&&<><div className="held-seat-list">{selectedIds.map(seatId=><button key={seatId} disabled={!!pending} onClick={()=>toggleSeat(seats.find(seat=>seat.id===seatId))} aria-label={`Remove seat ${seatId}`}>{seatId} ×</button>)}</div><div className="hold-details"><div><span>Seats</span><strong>{selectedIds.length}</strong></div><div><span>Total</span><strong>₹{selectedTotal}</strong></div></div><button className="btn btn-primary btn-lg w-100" disabled={!!pending} onClick={confirm}>{pending==='confirm'?<Spinner label="Starting payment…"/>:'Continue to payment'}</button></>}<div className="state-flow"><span>Select seats</span><i>→</i><span>Hold & pay</span><i>→</i><span>Confirmed</span></div></div></aside></div></main></Layout>
-  return <Layout><main id="main-content" className="container-fluid seat-page"><div className="container seat-header"><div><Link className="back-link" to={`/events/${id}`}>← Event details</Link><h1>Choose your seats</h1><p><strong>{event.title}</strong><span>·</span>{event.date}, {event.time}<span>·</span>{event.venue}</p></div><button className="btn btn-outline-secondary btn-sm" onClick={()=>{recoverHold();refresh()}} disabled={!!pending}>↻ Refresh seats</button></div><div className="container seat-layout"><section className="seat-map-card"><div className="seat-map-top"><div><h2>Main auditorium</h2><p>Click up to 6 seats. Each click immediately updates your shared backend hold.</p></div><span className="last-updated"><span/> Live availability</span></div><div className="stage"><span>STAGE</span></div><div className="seat-map-scroll">{['A','B','C','D'].map((section,row)=><div className="seat-section" key={section}><div className="section-label"><span>SECTION {section}</span><small>{row<2?'Premium':'Standard'}</small></div><div className="seat-row">{seats.filter(seat=>seat.section===section).map(seat=>{const selected=heldIds.includes(seat.id);return <button key={seat.id} className={`seat seat-${selected?'selected':seat.status}`} disabled={!!pending||['held-other','reserved'].includes(seat.status)} onClick={()=>toggleSeat(seat)} aria-pressed={selected} aria-label={`Seat ${seat.id}, ${selected?'selected and held by you':seat.status}, ₹${seat.price}`}><span className="seat-number">{seat.id}</span><span className="seat-price">₹{seat.price}</span><span className="seat-state">{selected?'Selected · held':seat.status==='held-other'?'Selected by another user':seat.status==='reserved'?'Reserved':'Available'}</span></button>})}</div></div>)}</div><div className="seat-legend"><span><i className="legend-swatch available"/>✓ Available</span><span><i className="legend-swatch selected"/>✓ Selected and held by you</span><span><i className="legend-swatch held-other"/>⌛ Selected by another user</span><span><i className="legend-swatch reserved"/>× Reserved</span></div></section><aside className="hold-panel" aria-live="polite">{hold?<div className="hold-active"><div className="hold-heading"><div><span className="eyebrow">Your live selection</span><h2>{heldIds.length} seat{heldIds.length===1?'':'s'}</h2></div><span className="hold-status"><i/> Held</span></div><div className="held-seat-list">{heldIds.map(seatId=><button key={seatId} disabled={!!pending} onClick={()=>toggleSeat(seats.find(seat=>seat.id===seatId))} aria-label={`Release seat ${seatId}`}>{seatId} ×</button>)}</div><div className="hold-details"><div><span>Seats</span><strong>{heldIds.length}</strong></div><div><span>Total</span><strong>₹{hold.totalPrice}</strong></div></div><p className="hold-note">The backend controls expiration and releases expired seats automatically. Refreshing or reopening this page restores your active selection.</p><button className="btn btn-primary btn-lg w-100" disabled={!!pending} onClick={confirm}>{pending==='confirm'?<Spinner label="Confirming…"/>:'Continue to payment'}</button><button className="btn btn-link text-danger w-100 mt-2" disabled={!!pending} onClick={release}>{pending==='release'?'Releasing…':'Release all seats'}</button></div>:<div className="hold-empty"><div className="hold-empty-icon">⌁</div><h2>No seats selected</h2><p>Click an available seat to create a backend-managed hold. Other customers will see it immediately.</p><div className="state-flow"><span>Select & hold</span><i>→</i><span>Pay</span><i>→</i><span>Confirmed</span></div></div>}</aside></div></main></Layout>
+
+  async function createHold() {
+    if (pending || hold || !selectedIds.length) return
+    const requestedIds = [...selectedIds].sort()
+    const logical = `${id}:${requestedIds.join(',')}`
+    setPending('hold')
+    try {
+      const result = await apiRequest('/v1/holds', {
+        method: 'POST',
+        headers: { 'Idempotency-Key': idempotencyKey('hold', logical) },
+        body: JSON.stringify({ eventId: id, seatIds: requestedIds })
+      })
+      clearIdempotencyKey('hold', logical)
+      setHold({ ...result, seatIds: result.seatIds || requestedIds, totalPrice: result.totalPrice ?? selectedTotal })
+      setSeats(items => items.map(item => requestedIds.includes(item.id) ? { ...item, status: 'held-self' } : item))
+      setSelectedIds([])
+      showToast(`${requestedIds.length} seat${requestedIds.length === 1 ? ' is' : 's are'} held for you.`)
+    } catch (err) {
+      const unavailable = err.details?.unavailableSeatIds || err.details?.seatIds || []
+      if (err.status === 409 || ['SEATS_UNAVAILABLE', 'SEAT_ALREADY_HELD', 'SEAT_ALREADY_RESERVED'].includes(err.code)) {
+        setSeats(items => items.map(item => unavailable.includes(item.id) ? { ...item, status: 'held-other' } : item))
+        setSelectedIds(current => current.filter(seatId => !unavailable.includes(seatId)))
+        showToast(unavailable.length ? `Seat${unavailable.length === 1 ? '' : 's'} ${unavailable.join(', ')} ${unavailable.length === 1 ? 'was' : 'were'} just taken. Review your selection and try again.` : 'One or more selected seats were just taken. Refresh and try again.', 'warning', 'Seats unavailable')
+        refresh(true)
+      } else {
+        showToast(err.message, 'error')
+      }
+    } finally {
+      setPending('')
+    }
+  }
+
+  async function confirm() {
+    if (pending || !selectedIds.length) return
+    const requestedIds = [...selectedIds].sort()
+    const logical = `${id}:${requestedIds.join(',')}`
+    setPending('confirm')
+    try {
+      const created = await apiRequest('/v1/holds', {
+        method: 'POST',
+        headers: { 'Idempotency-Key': idempotencyKey('hold', logical) },
+        body: JSON.stringify({ eventId: id, seatIds: requestedIds })
+      })
+      clearIdempotencyKey('hold', logical)
+      const checkout = await apiRequest(`/v1/holds/${created.id}/checkout`, { method: 'POST' })
+      navigate(`/checkout/${checkout.bookingId}`, { state: { hold: created } })
+    } catch (err) {
+      const unavailable = err.details?.unavailableSeatIds || []
+      if (err.status === 409 || err.code === 'SEATS_UNAVAILABLE') {
+        setSeats(items => items.map(item => unavailable.includes(item.id) ? { ...item, status: 'held-other' } : item))
+        setSelectedIds(current => current.filter(seatId => !unavailable.includes(seatId)))
+        showToast(unavailable.length ? `Seat${unavailable.length === 1 ? '' : 's'} ${unavailable.join(', ')} ${unavailable.length === 1 ? 'was' : 'were'} just taken. Choose another seat.` : 'One or more selected seats are no longer available.', 'warning', 'Seats unavailable')
+        await refresh(true)
+      } else {
+        showToast(err.message, 'error')
+      }
+    } finally {
+      setPending('')
+    }
+  }
+
+  async function release() {
+    if (!hold) return
+    setPending('release')
+    try {
+      await apiRequest(`/v1/holds/${hold.id}`, { method: 'DELETE', headers: { 'Idempotency-Key': idempotencyKey('release', hold.id) } })
+      clearIdempotencyKey('release', hold.id)
+      const releasedIds = hold.seatIds || []
+      setHold(null)
+      setSeats(items => items.map(item => releasedIds.includes(item.id) ? { ...item, status: 'available' } : item))
+      await refresh(true)
+      showToast('Seats released.')
+    } catch (err) {
+      showToast(err.message, 'error')
+    } finally {
+      setPending('')
+    }
+  }
+
+  if (!event) return null
+
+  return (
+    <Layout>
+      <main id="main-content" className="container-fluid seat-page">
+        <div className="container seat-header">
+          <div>
+            <Link className="back-link" to={`/events/${id}`}>← Event details</Link>
+            <h1>Choose your seats</h1>
+            <p><strong>{event.title}</strong><span> · </span>{event.date}, {event.time}<span> · </span>{event.venue}</p>
+          </div>
+          <button className="btn btn-outline-secondary btn-sm" onClick={() => refresh()} disabled={!!pending}>↻ Refresh seats</button>
+        </div>
+        <div className="container seat-layout">
+          <section className="seat-map-card">
+            <div className="seat-map-top">
+              <div>
+                <h2>Main auditorium</h2>
+                <p>Choose up to 6 seats. Live state updates in real-time as other buyers hold or checkout seats.</p>
+              </div>
+              <span className="last-updated"><span/> Live updates active</span>
+            </div>
+            <div className="stage"><span>STAGE</span></div>
+            <div className="seat-map-scroll">
+              {['A', 'B', 'C', 'D'].map((section, row) => (
+                <div className="seat-section" key={section}>
+                  <div className="section-label">
+                    <span>SECTION {section}</span>
+                    <small>{row < 2 ? 'Premium' : 'Standard'}</small>
+                  </div>
+                  <div className="seat-row">
+                    {seats.filter(seat => seat.section === section).map(seat => {
+                      const selected = selectedIds.includes(seat.id)
+                      const isHeldSelf = seat.status === 'held-self' || selected
+                      const isUnderPayment = seat.status === 'under-payment'
+                      const isHeldOther = seat.status === 'held-other'
+                      const isReserved = seat.status === 'reserved'
+                      const statusClass = selected ? 'selected' : seat.status
+
+                      return (
+                        <button
+                          key={seat.id}
+                          className={`seat seat-${statusClass}`}
+                          disabled={!!pending || (!selected && ['held-other', 'under-payment', 'reserved', 'unavailable'].includes(seat.status))}
+                          onClick={() => toggleSeat(seat)}
+                          aria-pressed={selected}
+                          title={isUnderPayment ? `Seat ${seat.id} — Under payment by another customer` : isHeldOther ? `Seat ${seat.id} — Held by another customer` : isReserved ? `Seat ${seat.id} — Reserved` : `Seat ${seat.id} — ₹${seat.price}`}
+                          aria-label={`Seat ${seat.id}, ${selected ? 'selected' : seat.status}, ₹${seat.price}`}
+                        >
+                          <span className="seat-number">{seat.id}</span>
+                          <span className="seat-price">₹{seat.price}</span>
+                          <span className="seat-state">
+                            {selected ? 'Selected' :
+                             isHeldSelf ? 'Your hold' :
+                             isUnderPayment ? <><i className="seat-pulse-dot"/>In payment</> :
+                             isHeldOther ? <><i className="seat-pulse-dot"/>Holding</> :
+                             isReserved ? 'Reserved' : 'Available'}
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="seat-legend">
+              <span className="legend-item"><i className="legend-swatch available"/>✓ Available</span>
+              <span className="legend-item"><i className="legend-swatch selected"/>✓ Your selection</span>
+              <span className="legend-item"><i className="legend-swatch held-other"/>⌛ Holding by another</span>
+              <span className="legend-item"><i className="legend-swatch under-payment"/>💳 Under payment</span>
+              <span className="legend-item"><i className="legend-swatch reserved"/>× Reserved</span>
+            </div>
+          </section>
+          <aside className="hold-panel" aria-live="polite">
+            <div className="hold-empty">
+              <div className="hold-empty-icon">⌁</div>
+              <h2>{selectedIds.length ? `${selectedIds.length} seat${selectedIds.length === 1 ? '' : 's'} selected` : 'No seats selected'}</h2>
+              <p>{selectedIds.length ? 'Your seats will be locked for five minutes when you proceed to checkout.' : 'Choose available seats, then continue to payment to start your five-minute hold.'}</p>
+              {selectedIds.length > 0 && (
+                <>
+                  <div className="held-seat-list">
+                    {selectedIds.map(seatId => (
+                      <button key={seatId} disabled={!!pending} onClick={() => toggleSeat(seats.find(seat => seat.id === seatId))} aria-label={`Remove seat ${seatId}`}>
+                        {seatId} ×
+                      </button>
+                    ))}
+                  </div>
+                  <div className="hold-details">
+                    <div><span>Seats</span><strong>{selectedIds.length}</strong></div>
+                    <div><span>Total</span><strong>₹{selectedTotal}</strong></div>
+                  </div>
+                  <button className="btn btn-primary btn-lg w-100" disabled={!!pending} onClick={confirm}>
+                    {pending === 'confirm' ? <Spinner label="Starting payment…"/> : 'Continue to payment'}
+                  </button>
+                </>
+              )}
+              <div className="state-flow"><span>Select seats</span><i>→</i><span>Hold & pay</span><i>→</i><span>Confirmed</span></div>
+            </div>
+          </aside>
+        </div>
+      </main>
+    </Layout>
+  )
 }
+
 
 function Empty({icon,title,text}){return <div className="empty-state"><div className="empty-icon">{icon}</div><h2>{title}</h2><p>{text}</p></div>}
 

@@ -42,7 +42,19 @@ export async function createGroupedHold(client,{userId,eventIdentifier,seatLabel
 
   const holdResult=await client.query("INSERT INTO holds(user_id,event_id,expires_at) VALUES($1,$2,now()+interval '5 minutes') RETURNING id,expires_at",[userId,event.id])
   const hold=holdResult.rows[0]
-  for(const seat of seats.rows){await client.query('INSERT INTO hold_seats(hold_id,event_seat_id,price_paise) VALUES($1,$2,$3)',[hold.id,seat.id,seat.price_paise]);await client.query('INSERT INTO seat_claims(event_seat_id,hold_id,expires_at) VALUES($1,$2,$3)',[seat.id,hold.id,hold.expires_at])}
+  try {
+    for(const seat of seats.rows){await client.query('INSERT INTO hold_seats(hold_id,event_seat_id,price_paise) VALUES($1,$2,$3)',[hold.id,seat.id,seat.price_paise]);await client.query('INSERT INTO seat_claims(event_seat_id,hold_id,expires_at) VALUES($1,$2,$3)',[seat.id,hold.id,hold.expires_at])}
+  } catch(error) {
+    if(error.code==='23505'&&error.constraint==='seat_claims_pkey'){
+      const conflict=new Error('One or more selected seats are unavailable.')
+      conflict.status=409
+      conflict.code='SEATS_UNAVAILABLE'
+      const eventSeatId=error.detail?.match(/=\(([^)]+)\)/)?.[1]
+      conflict.details={unavailableSeatIds:[seats.find(seat=>seat.id===eventSeatId)?.seat_label].filter(Boolean)}
+      throw conflict
+    }
+    throw error
+  }
   const body={id:hold.id,eventId:event.slug,seatIds:normalized,status:'ACTIVE',totalPrice:seats.rows.reduce((sum,row)=>sum+Number(row.price_paise),0)/100,expiresAt:hold.expires_at}
   await client.query("UPDATE idempotency_records SET response_status=201,response_body=$1 WHERE user_id=$2 AND operation='CREATE_HOLD' AND key=$3",[body,userId,idempotencyKey])
   return body

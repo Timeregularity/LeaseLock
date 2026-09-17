@@ -53,12 +53,22 @@ adminRouter.get('/seats', async(request,response,next)=>{
     const identifier=request.query.eventId||'techfest-live';const event=await findEvent(pool,identifier)
     if(!event)return response.status(404).json({code:'EVENT_NOT_FOUND',message:'The event could not be found.'})
     const result=await pool.query(`SELECT es.seat_label AS id,es.section,es.price_paise,
-      CASE WHEN NOT es.is_enabled THEN 'UNAVAILABLE' WHEN bs.event_seat_id IS NOT NULL THEN 'RESERVED' WHEN sc.event_seat_id IS NOT NULL THEN 'HELD' ELSE 'AVAILABLE' END status,
-      sc.expires_at FROM event_seats es LEFT JOIN seat_claims sc ON sc.event_seat_id=es.id AND sc.expires_at>now()
-      LEFT JOIN booking_seats bs ON bs.event_seat_id=es.id AND bs.cancelled_at IS NULL WHERE es.event_id=$1 ORDER BY es.section,es.seat_number`,[event.id])
+      CASE WHEN NOT es.is_enabled THEN 'UNAVAILABLE'
+           WHEN bs.event_seat_id IS NOT NULL THEN 'RESERVED'
+           WHEN sc.event_seat_id IS NOT NULL THEN
+             CASE WHEN b.id IS NOT NULL THEN 'PAYMENT_IN_PROGRESS'
+                  ELSE 'HELD' END
+           ELSE 'AVAILABLE' END status,
+      sc.expires_at FROM event_seats es
+      LEFT JOIN seat_claims sc ON sc.event_seat_id=es.id AND sc.expires_at>now()
+      LEFT JOIN holds h ON h.id=sc.hold_id
+      LEFT JOIN bookings b ON b.source_hold_id=h.id AND b.status='PENDING_PAYMENT'
+      LEFT JOIN booking_seats bs ON bs.event_seat_id=es.id AND bs.cancelled_at IS NULL
+      WHERE es.event_id=$1 ORDER BY es.section,es.seat_number`,[event.id])
     response.json({eventId:event.slug,seats:result.rows.map(row=>({...row,price:Number(row.price_paise)/100,price_paise:undefined}))})
   }catch(error){next(error)}
 })
+
 
 adminRouter.put('/events/:identifier/seats', async(request,response,next)=>{
   try {

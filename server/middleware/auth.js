@@ -26,6 +26,28 @@ export async function requireAuth(request, response, next) {
   }
 }
 
+export async function optionalAuth(request, response, next) {
+  try {
+    const token = request.cookies?.[sessionCookieName]
+    if (!token) return next()
+
+    const result = await pool.query(`
+      SELECT u.id, u.email, u.full_name, u.role
+      FROM sessions s
+      JOIN users u ON u.id = s.user_id
+      WHERE s.token_hash = $1 AND s.revoked_at IS NULL AND s.expires_at > now() AND u.is_active = true
+    `, [hashToken(token)])
+
+    if (result.rowCount) {
+      const user = result.rows[0]
+      request.user = { id:user.id, email:user.email, fullName:user.full_name, role:user.role }
+    }
+    next()
+  } catch (error) {
+    next()
+  }
+}
+
 export function requireRole(...roles) {
   return (request, response, next) => roles.includes(request.user?.role)
     ? next()
