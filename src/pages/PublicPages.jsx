@@ -230,6 +230,23 @@ export function SeatSelection() {
     }
   }
 
+  async function resumeBooking() {
+    if (hold?.bookingId) {
+      navigate(`/checkout/${hold.bookingId}`, { state: { hold } })
+      return
+    }
+    if (!hold?.id) return
+    setPending('resume')
+    try {
+      const checkout = await apiRequest(`/v1/holds/${hold.id}/checkout`, { method: 'POST' })
+      navigate(`/checkout/${checkout.bookingId}`, { state: { hold } })
+    } catch (err) {
+      showToast(err.message, 'error')
+    } finally {
+      setPending('')
+    }
+  }
+
   async function release() {
     if (!hold) return
     setPending('release')
@@ -262,23 +279,26 @@ export function SeatSelection() {
           <button className="btn btn-outline-secondary btn-sm" onClick={() => refresh()} disabled={!!pending}>↻ Refresh seats</button>
         </div>
 
-        {hold?.bookingId && (
+        {hold && secondsLeft > 0 && (
           <div className="container mb-4">
             <div className="card border-0 shadow-sm rounded-4 p-3 d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-3" style={{ background: 'linear-gradient(135deg, rgba(223, 109, 79, 0.12), rgba(222, 178, 94, 0.12))', border: '1px solid rgba(223, 109, 79, 0.35)' }}>
               <div className="d-flex align-items-center gap-3">
                 <span className="fs-2">⏱️</span>
                 <div>
                   <h3 className="h6 mb-1 fw-bold text-dark">
-                    Checkout in progress for Seat{hold.seatIds?.length === 1 ? '' : 's'} {hold.seatIds?.join(', ')}
+                    Active Hold: Seat{hold.seatIds?.length === 1 ? '' : 's'} {hold.seatIds?.join(', ')}
                   </h3>
                   <p className="mb-0 text-muted small">
-                    Time remaining: <strong className="text-danger font-monospace fs-6">{formatSeconds(secondsLeft)}</strong>. Seats are reserved exclusively for you during this checkout window.
+                    Time remaining: <strong className="text-danger font-monospace fs-6">{formatSeconds(secondsLeft)}</strong>. Your seats are locked exclusively for you.
                   </p>
                 </div>
               </div>
-              <div>
-                <button className="btn btn-primary px-4 fw-semibold" onClick={() => navigate(`/checkout/${hold.bookingId}`, { state: { hold } })}>
-                  Resume Checkout →
+              <div className="d-flex flex-wrap align-items-center gap-2">
+                <button className="btn btn-primary px-4 fw-semibold" onClick={resumeBooking} disabled={!!pending}>
+                  {pending === 'resume' ? <Spinner label="Resuming…"/> : 'Resume Booking →'}
+                </button>
+                <button className="btn btn-outline-danger btn-sm px-3" onClick={release} disabled={!!pending}>
+                  {pending === 'release' ? <Spinner label="Cancelling…"/> : 'Cancel hold'}
                 </button>
               </div>
             </div>
@@ -315,7 +335,7 @@ export function SeatSelection() {
                         <button
                           key={seat.id}
                           className={`seat seat-${statusClass}`}
-                          disabled={!!pending || hold?.bookingId || (!selected && ['held-other', 'under-payment', 'reserved', 'unavailable'].includes(seat.status))}
+                          disabled={!!pending || !!hold || (!selected && ['held-other', 'under-payment', 'reserved', 'unavailable'].includes(seat.status))}
                           onClick={() => toggleSeat(seat)}
                           aria-pressed={selected || isHeldSelf}
                           title={isUnderPayment ? `Seat ${seat.id} — Under payment by another customer` : isHeldOther ? `Seat ${seat.id} — Held by another customer` : isReserved ? `Seat ${seat.id} — Reserved` : isHeldSelf ? `Seat ${seat.id} — Your hold` : `Seat ${seat.id} — ₹${seat.price}`}
@@ -347,11 +367,11 @@ export function SeatSelection() {
           </section>
 
           <aside className="hold-panel" aria-live="polite">
-            {hold?.bookingId ? (
+            {hold && secondsLeft > 0 ? (
               <div className="hold-empty text-center p-3">
                 <div className="hold-empty-icon" style={{ color: '#df6d4f' }}>💳</div>
-                <h2>Checkout In Progress</h2>
-                <p className="text-muted small">Seats <strong>{hold.seatIds?.join(', ')}</strong> are held while you complete payment.</p>
+                <h2>Hold In Progress</h2>
+                <p className="text-muted small">Seats <strong>{hold.seatIds?.join(', ')}</strong> are locked exclusively for your account.</p>
                 <div className="p-3 my-3 rounded-3" style={{ background: 'rgba(223, 109, 79, 0.08)', border: '1px solid rgba(223, 109, 79, 0.25)' }}>
                   <small className="text-muted d-block text-uppercase fw-bold mb-1" style={{ fontSize: '0.75rem', letterSpacing: '0.05em' }}>Time Remaining</small>
                   <span className="fs-2 fw-bold font-monospace" style={{ color: '#df6d4f' }}>{formatSeconds(secondsLeft)}</span>
@@ -360,10 +380,13 @@ export function SeatSelection() {
                   <div><span>Seats</span><strong>{hold.seatIds?.length}</strong></div>
                   <div><span>Total</span><strong>₹{hold.totalPrice}</strong></div>
                 </div>
-                <button className="btn btn-primary btn-lg w-100 mb-2" onClick={() => navigate(`/checkout/${hold.bookingId}`, { state: { hold } })}>
-                  Resume Checkout →
+                <button className="btn btn-primary btn-lg w-100 mb-2" onClick={resumeBooking} disabled={!!pending}>
+                  {pending === 'resume' ? <Spinner label="Resuming…"/> : 'Resume Booking →'}
                 </button>
-                <small className="text-muted d-block mt-2">Seat changes are locked while in checkout to prevent inventory hoarding.</small>
+                <button className="btn btn-outline-danger btn-sm w-100 mb-2" onClick={release} disabled={!!pending}>
+                  {pending === 'release' ? <Spinner label="Cancelling…"/> : 'Cancel & release seats'}
+                </button>
+                <small className="text-muted d-block mt-1">Cancelling will immediately release seats for other buyers.</small>
               </div>
             ) : (
               <div className="hold-empty">
@@ -404,8 +427,25 @@ export function Checkout() {
   const {bookingId}=useParams();const navigate=useNavigate();const location=useLocation();const showToast=useToast();const [booking,setBooking]=useState(null);const [busy,setBusy]=useState(false);const [result,setResult]=useState(null);const [error,setError]=useState('')
   useEffect(()=>{apiRequest(`/v1/bookings/${bookingId}`).then(data=>setBooking(data.booking)).catch(err=>setError(err.message))},[bookingId])
   async function pay(event){event.preventDefault();setBusy(true);setError('');const form=Object.fromEntries(new FormData(event.currentTarget));try{const paymentKey=idempotencyKey('payment',`${bookingId}:${form.method}:${form.scenario}`);const created=await apiRequest('/v1/payments',{method:'POST',headers:{'Idempotency-Key':paymentKey},body:JSON.stringify({bookingId,method:form.method,scenario:form.scenario})});clearIdempotencyKey('payment',`${bookingId}:${form.method}:${form.scenario}`);const simulated=await apiRequest(`/v1/payments/${created.payment.id}/simulate`,{method:'POST'});setResult(simulated.payment);if(simulated.payment.status==='SUCCESSFUL'){const holdId=booking.sourceHoldId||location.state?.hold?.id;const confirmed=await apiRequest(`/v1/holds/${holdId}/confirm`,{method:'POST',headers:{'Idempotency-Key':idempotencyKey('confirm',holdId)}});clearIdempotencyKey('confirm',holdId);const reservation=confirmed.reservation;reservation.event=displayEvent({...reservation.event,available:1,total:reservation.seats.length,price:reservation.totalPrice});navigate('/reservations/success',{replace:true,state:{reservation}})}else if(simulated.payment.status==='FAILED'||simulated.payment.status==='CANCELLED'||simulated.payment.status==='EXPIRED')setError('The simulated payment did not succeed. You can try again while the hold remains active.')}catch(err){setError(err.message)}finally{setBusy(false)}}
+  async function cancelCheckout() {
+    if (!booking) return
+    setBusy(true)
+    try {
+      const holdId = booking.sourceHoldId || location.state?.hold?.id
+      if (holdId) {
+        await apiRequest(`/v1/holds/${holdId}`, { method: 'DELETE', headers: { 'Idempotency-Key': idempotencyKey('release', holdId) } })
+        clearIdempotencyKey('release', holdId)
+      }
+      showToast('Hold cancelled and seats released.')
+      navigate(`/events/${booking.event?.id || booking.event?.slug || ''}/seats`, { replace: true })
+    } catch (err) {
+      showToast(err.message, 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
   if(!booking&&!error)return <Layout><main id="main-content" className="container narrow-page text-center"><Spinner label="Preparing checkout…"/></main></Layout>
-  return <Layout><main id="main-content" className="container narrow-page"><PageHeader eyebrow="Test checkout" heading="Complete your booking" description="This demonstration uses simulated payments only. No real money or card information is collected."/>{error&&<div className="alert alert-danger" role="alert">{error}</div>}{booking&&<div className="detail-grid"><section className="content-card"><h2 className="h4">Booking summary</h2><div className="details-list"><div><span>Event</span><strong>{booking.event.title}</strong></div><div><span>Seats</span><strong>{reservationSeats(booking).join(', ')}</strong></div><div><span>Total</span><strong>₹{booking.totalPrice}</strong></div><div><span>Status</span><strong>{booking.status}</strong></div></div></section><section className="content-card"><h2 className="h4">Mock payment</h2><form onSubmit={pay}><label className="form-label" htmlFor="paymentMethod">Method</label><select className="form-select mb-3" id="paymentMethod" name="method"><option value="TEST_UPI">Test UPI</option><option value="TEST_CARD">Test card</option><option value="TEST_NET_BANKING">Test net banking</option></select><label className="form-label" htmlFor="paymentScenario">Simulation result</label><select className="form-select mb-4" id="paymentScenario" name="scenario"><option value="SUCCESS">Successful payment</option><option value="FAILURE">Failed payment</option><option value="CANCELLED">Customer cancellation</option><option value="PENDING">Processing delay</option></select><button className="btn btn-primary w-100" disabled={busy}>{busy?<Spinner label="Processing…"/>:`Simulate payment of ₹${booking.totalPrice}`}</button>{result&&<p className="mt-3 mb-0 text-muted">Payment status: <strong>{result.status}</strong></p>}</form></section></div>}</main></Layout>
+  return <Layout><main id="main-content" className="container narrow-page"><PageHeader eyebrow="Test checkout" heading="Complete your booking" description="This demonstration uses simulated payments only. No real money or card information is collected."/>{error&&<div className="alert alert-danger" role="alert">{error}</div>}{booking&&<div className="detail-grid"><section className="content-card"><h2 className="h4">Booking summary</h2><div className="details-list"><div><span>Event</span><strong>{booking.event.title}</strong></div><div><span>Seats</span><strong>{reservationSeats(booking).join(', ')}</strong></div><div><span>Total</span><strong>₹{booking.totalPrice}</strong></div><div><span>Status</span><strong>{booking.status}</strong></div></div></section><section className="content-card"><h2 className="h4">Mock payment</h2><form onSubmit={pay}><label className="form-label" htmlFor="paymentMethod">Method</label><select className="form-select mb-3" id="paymentMethod" name="method"><option value="TEST_UPI">Test UPI</option><option value="TEST_CARD">Test card</option><option value="TEST_NET_BANKING">Test net banking</option></select><label className="form-label" htmlFor="paymentScenario">Simulation result</label><select className="form-select mb-4" id="paymentScenario" name="scenario"><option value="SUCCESS">Successful payment</option><option value="FAILURE">Failed payment</option><option value="CANCELLED">Customer cancellation</option><option value="PENDING">Processing delay</option></select><button className="btn btn-primary w-100 mb-2" disabled={busy}>{busy?<Spinner label="Processing…"/>:`Simulate payment of ₹${booking.totalPrice}`}</button><button type="button" className="btn btn-outline-danger btn-sm w-100" disabled={busy} onClick={cancelCheckout}>{busy?<Spinner label="Cancelling…"/>:'Cancel checkout & release seats'}</button>{result&&<p className="mt-3 mb-0 text-muted">Payment status: <strong>{result.status}</strong></p>}</form></section></div>}</main></Layout>
 }
 
 export function ReservationSuccess() {

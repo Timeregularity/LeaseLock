@@ -53,7 +53,7 @@ holdsRouter.get('/active/current',async(request,response,next)=>{
     const eventId=String(request.query.eventId||'')
     const hold=await withTransaction(async client=>{await expireHolds(client);const result=await client.query(`SELECT h.id,h.status,h.expires_at,e.slug,
       coalesce(sum(hs.price_paise),0) total_paise,array_agg(es.seat_label ORDER BY es.seat_label) seat_ids,
-      (SELECT b.id FROM bookings b WHERE b.source_hold_id=h.id AND b.status='PENDING_PAYMENT' LIMIT 1) booking_id
+      (SELECT b.id FROM bookings b WHERE b.source_hold_id=h.id AND b.status IN ('PENDING_PAYMENT','PAYMENT_FAILED') ORDER BY b.created_at DESC LIMIT 1) booking_id
       FROM holds h JOIN events e ON e.id=h.event_id JOIN hold_seats hs ON hs.hold_id=h.id JOIN event_seats es ON es.id=hs.event_seat_id
       WHERE h.user_id=$1 AND h.status='ACTIVE' AND h.expires_at>now() AND ($2='' OR e.slug=$2 OR e.id::text=$2)
       GROUP BY h.id,e.slug ORDER BY h.created_at DESC LIMIT 1`,[request.user.id,eventId]);return result.rows[0]||null})
@@ -71,7 +71,7 @@ holdsRouter.get('/:id',async(request,response,next)=>{
 })
 
 holdsRouter.delete('/:id',async(request,response,next)=>{
-  try{const released=await withTransaction(async client=>{await expireHolds(client);const result=await client.query("SELECT h.id,h.status,e.slug FROM holds h JOIN events e ON e.id=h.event_id WHERE h.id=$1 AND h.user_id=$2 FOR UPDATE OF h",[request.params.id,request.user.id]);if(!result.rowCount)return null;if(result.rows[0].status==='ACTIVE'){await client.query('DELETE FROM seat_claims WHERE hold_id=$1',[request.params.id]);await client.query("UPDATE holds SET status='RELEASED',updated_at=now() WHERE id=$1",[request.params.id]);await enqueueSeatChange(client,result.rows[0].slug,'hold-released')}return{eventId:result.rows[0].slug,changed:result.rows[0].status==='ACTIVE'}})
+  try{const released=await withTransaction(async client=>{await expireHolds(client);const result=await client.query("SELECT h.id,h.status,e.slug FROM holds h JOIN events e ON e.id=h.event_id WHERE h.id=$1 AND h.user_id=$2 FOR UPDATE OF h",[request.params.id,request.user.id]);if(!result.rowCount)return null;if(result.rows[0].status==='ACTIVE'){await client.query('DELETE FROM seat_claims WHERE hold_id=$1',[request.params.id]);await client.query("UPDATE holds SET status='RELEASED',updated_at=now() WHERE id=$1",[request.params.id]);await client.query("UPDATE bookings SET status='PAYMENT_FAILED',updated_at=now() WHERE source_hold_id=$1 AND status='PENDING_PAYMENT'",[request.params.id]);await enqueueSeatChange(client,result.rows[0].slug,'hold-released')}return{eventId:result.rows[0].slug,changed:result.rows[0].status==='ACTIVE'}})
     if(!released)return response.status(404).json({code:'HOLD_NOT_FOUND',message:'The hold could not be found.'});if(released.changed)broadcastSeatChange(released.eventId,'hold-released');response.status(204).end()
   }catch(error){next(error)}
 })
