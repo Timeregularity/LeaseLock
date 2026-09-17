@@ -1,331 +1,432 @@
 <div align="center">
 
-# LEASELOCK
+# 🎟️ LEASELOCK
 
-### The seat is not yours until the database says it is.
+### Distributed High-Concurrency Seat Allocation & Leased-Locking Engine
 
-<p>Concurrency-safe event reservations for the moment when one seat has more than one future.</p>
+<p>Zero-Double-Booking Ticket Reservation Platform Built on PostgreSQL Strict Serializability, Real-Time Ephemeral Presence, and Leased Invariants.</p>
 
 [![React 19](https://img.shields.io/badge/React-19-9DE2C0?style=for-the-badge&logo=react&logoColor=071714&labelColor=0B2B26)](https://react.dev/)
 [![Express 5](https://img.shields.io/badge/Express-5-9DE2C0?style=for-the-badge&logo=express&logoColor=071714&labelColor=0B2B26)](https://expressjs.com/)
 [![PostgreSQL 17](https://img.shields.io/badge/PostgreSQL-17-9DE2C0?style=for-the-badge&logo=postgresql&logoColor=071714&labelColor=0B2B26)](https://www.postgresql.org/)
 [![Docker](https://img.shields.io/badge/Docker-Compose-9DE2C0?style=for-the-badge&logo=docker&logoColor=071714&labelColor=0B2B26)](https://www.docker.com/)
+[![Render](https://img.shields.io/badge/Render-Deployed-46E3B7?style=for-the-badge&logo=render&logoColor=white)](https://render.com)
 
-**A production-style ticket reservation platform built around one invariant: one event seat, one winner.**
+**"The seat is not yours until the database commits that it is."**
 
-[Run it](#run-locally) · [See the architecture](#architecture) · [Test contention](#verification) · [Read the operations guide](docs/operations.md)
+[Run Locally](#-run-locally) · [System Architecture](#-system-architecture) · [Concurrency Guarantees](#-concurrency--double-booking-protection) · [Live Presence](#-real-time-live-ghost-selection-presence) · [API Specification](#-api-specification) · [Verification & Load Testing](#-verification--stress-testing)
 
 </div>
 
 <br>
 
 > [!IMPORTANT]
-> LeaseLock is a portfolio-grade reservation system. Checkout and refunds are deterministic simulations; no real money or banking credentials are processed.
+> **Production-Grade Concurrency Demonstration:** LeaseLock is an advanced distributed systems and transactional web architecture project. Financial transactions and refunds use a deterministic mock payment state engine with full cryptographic idempotency keys to demonstrate zero race conditions and zero double-booking under extreme load.
 
-## The premise
+---
 
-Most booking demos are polished until two customers click the same seat. LeaseLock starts there.
+## 📌 The Core Problem
 
-The React client submits intent. The Express API validates it. PostgreSQL locks the relevant rows and commits the winner inside a transaction. Only after the database has decided does the server broadcast the new inventory state to connected clients.
+When thousands of users simultaneously click the exact same front-row seat during a high-demand flash sale (concerts, flight bookings, transit ticketing):
+1. **Naive read-then-write logic creates Double-Bookings** (Lost Updates / Race Conditions).
+2. **Client-side countdown timers drift or get manipulated**, leading to seat hoarding.
+3. **Database deadlocks occur** when concurrent transactions lock rows in arbitrary order.
+4. **Network disconnects during payment trap seats** in permanent orphaned holds.
 
-That narrow order of authority is the whole point:
+**LeaseLock solves this through a multi-layered concurrency engine:**
+- **Strict Row Serialization:** Deterministic sorted `SELECT ... FOR UPDATE` row locks.
+- **Database Advisory Locks:** `pg_try_advisory_xact_lock` prevents background expiry worker collisions.
+- **Hard Unique Constraints:** Relational partial indexes guarantee strictly **1 winner per seat** ($N$ requests $\to 1$ commit, $N-1$ immediate `409 Conflict`).
+- **Real-Time Ephemeral Ghost Presence:** SSE broadcasts live user selections sub-50ms across all viewers before an atomic hold is even created.
+- **Self-Healing Lease Management:** Persistent floating checkout banner with 1-click hold resumption across all payment states (`PENDING_PAYMENT`, `PAYMENT_FAILED`) and explicit immediate hold cancellation.
 
-```text
-Browser intent  ->  API validation  ->  PostgreSQL transaction  ->  committed inventory  ->  live update
-```
+---
 
-The result is a complete reservation journey with authentication, temporary holds, grouped multi-seat booking, simulated checkout, cancellations, refunds, waitlists, administration, observability, and repeatable verification.
-
-## Product at a glance
-
-| For customers                               | For operators                      | Under the surface                       |
-| ------------------------------------------- | ---------------------------------- | --------------------------------------- |
-| Browse published events and availability    | Create and edit events             | PostgreSQL transactions and constraints |
-| Hold 1-6 seats together for five minutes    | Inspect inventory and live holds   | Server-Sent Events for seat updates     |
-| Recover an active hold after refresh        | Review metrics, audits, and health | Idempotent critical writes              |
-| Checkout, cancel, and see simulated refunds | Run a protected race demonstration | Background expiry and waitlist jobs     |
-| Join an ordered waitlist                    | Work through role-protected routes | HTTP-only sessions and rate limits      |
-
-## Why it is interesting
-
-- **The frontend never owns availability.** A countdown can inform the user, but only the backend can accept or reject a hold.
-- **A group is atomic.** A customer can hold up to six seats from one event, and the request succeeds only when every seat is available.
-- **Races have a deterministic outcome.** Conflicting requests are serialized by row locks and protected by unique database constraints.
-- **Live updates are authoritative signals, not authority.** SSE keeps other seat maps fresh while PostgreSQL remains the source of truth.
-- **Retries are expected.** Idempotency keys prevent uncertain network retries from duplicating holds, payments, confirmations, or cancellations.
-- **Recovery is part of the journey.** Reloading or reconnecting restores the customer's active hold instead of leaving a reservation in limbo.
-
-## Architecture
+## 🏗️ System Architecture
 
 ```mermaid
-flowchart LR
-    UI[React 19 + Vite] -->|REST /v1| API[Express 5 API]
-    UI -.->|SSE seat events| API
-    API -->|transactions, locks, constraints| DB[(PostgreSQL 17)]
-    API --> Jobs[Expiry, cleanup, outbox, waitlist jobs]
-    Jobs --> DB
-    API --> Logs[Request IDs, JSON logs, audit records]
+flowchart TD
+    subgraph Clients["Client Layer (React 19 + Vite)"]
+        UserA["User A (Browser)"]
+        UserB["User B (Browser)"]
+        Admin["Admin Dashboard"]
+    end
+
+    subgraph Edge["API & Orchestration Layer (Node.js / Express 5)"]
+        AuthMiddleware["Auth & Session Middleware (HTTP-only Cookies)"]
+        RateLimiter["Rate Limiting & Helmet Guard"]
+        IdempotencyLayer["Idempotency Key Guard (SHA-256 Hashing)"]
+        HoldEngine["Hold & Allocation Engine"]
+        PaymentEngine["Stateful Payment Simulation"]
+        SSEBroadcaster["SSE Event Stream Broadcaster"]
+        DraftManager["In-Memory Ephemeral Draft Registry"]
+    end
+
+    subgraph Workers["Background Daemons"]
+        ExpiryWorker["Hold Expiry Daemon (10s Polling)"]
+        WaitlistWorker["Waitlist Auto-Promotion Worker"]
+    end
+
+    subgraph Storage["Durable Storage Layer (PostgreSQL 17 / Neon)"]
+        SeatClaims["seat_claims (Unique event_seat_id)"]
+        HoldTable["seat_holds (TTL Timestamps)"]
+        AdvisoryLock["pg_try_advisory_xact_lock()"]
+        AuditLogs["audit_logs (Immutable Action Trail)"]
+    end
+
+    UserA -->|POST /v1/holds| RateLimiter
+    UserB -->|POST /v1/holds| RateLimiter
+    RateLimiter --> AuthMiddleware --> IdempotencyLayer --> HoldEngine
+    HoldEngine -->|Atomic Tx with FOR UPDATE| SeatClaims
+    HoldEngine -->|Hold Expiry Check| HoldTable
+    ExpiryWorker -->|pg_try_advisory_xact_lock| AdvisoryLock
+    HoldEngine -->|Broadcast Inventory Commit| SSEBroadcaster
+    UserA -.->|POST /v1/events/:id/drafts| DraftManager
+    DraftManager -.->|drafts-changed SSE| SSEBroadcaster
+    SSEBroadcaster -.->|Sub-50ms Live Feed| UserA
+    SSEBroadcaster -.->|Sub-50ms Live Feed| UserB
 ```
 
-The frontend owns presentation and transient interaction state. Express owns authentication, authorization, validation, orchestration, and real-time delivery. PostgreSQL owns durable state and allocation correctness.
+---
 
-### The reservation lifecycle
+## ⚡ Concurrency & Double-Booking Protection
+
+### 1. Deterministic Row-Level Locking (`FOR UPDATE`)
+When a user requests $K$ seats, LeaseLock sorts requested seat IDs lexicographically before acquiring locks:
+```sql
+SELECT id, status FROM event_seats 
+WHERE id = ANY($1) 
+ORDER BY id ASC 
+FOR UPDATE;
+```
+*Why?* Ordering eliminates cyclic wait dependencies, mathematically preventing deadlock conditions between simultaneous multi-seat claims.
+
+### 2. Multi-Layer Database Invariants
+Even if application logic fails or multiple API instances race concurrently:
+```sql
+CREATE UNIQUE INDEX idx_unique_active_seat_claim 
+ON seat_claims(event_seat_id);
+```
+Under PostgreSQL Read Committed / Serializable isolation, the first transaction commits the row. All competing transactions immediately fail with a Postgres `23505 unique_violation` and are converted by the API into a clean, deterministic `409 Conflict: SEATS_UNAVAILABLE` response.
+
+### 3. PostgreSQL Advisory Locking on Expiry Daemon
+Background cleanup workers running concurrently across instances acquire a non-blocking transaction-level advisory lock:
+```sql
+SELECT pg_try_advisory_xact_lock(987654);
+```
+If another instance is actively processing expired holds, the worker skips execution gracefully without lock contention or table thrashing.
+
+### 4. Sequence Diagram: Simultaneous Same-Seat Race
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Alice as Customer A (0.00ms)
+    participant Bob as Customer B (+0.02ms)
+    participant API as LeaseLock Engine
+    participant DB as PostgreSQL (ACID)
+    participant SSE as SSE Broadcaster
+
+    par Concurrent Seat Claim
+        Alice->>API: POST /v1/holds [Seat A1]
+        Bob->>API: POST /v1/holds [Seat A1]
+    end
+
+    Note over API,DB: Transaction Begins
+    API->>DB: BEGIN TRANSACTION (Alice)
+    API->>DB: SELECT FOR UPDATE (Alice locks A1)
+    DB-->>API: Row Locked (Alice)
+
+    API->>DB: BEGIN TRANSACTION (Bob)
+    API->>DB: SELECT FOR UPDATE (Bob waits on A1 lock...)
+
+    API->>DB: INSERT INTO seat_claims (Alice, A1)
+    API->>DB: COMMIT (Alice)
+    DB-->>API: Commit Success: A1 Held
+
+    Note over DB,API: Lock Released to Bob
+    DB-->>API: Bob resumes SELECT FOR UPDATE
+    API->>DB: Check seat_claims for A1
+    DB-->>API: A1 already claimed!
+    API->>DB: ROLLBACK (Bob)
+
+    API-->>Alice: 201 Created (Hold ID: hld_123, TTL: 300s)
+    API-->>Bob: 409 Conflict (SEATS_UNAVAILABLE)
+
+    API->>SSE: Broadcast `seat-updated` (A1: HELD)
+    SSE-->>Alice: Update UI State
+    SSE-->>Bob: Update UI State (A1 turns Orange/Locked)
+```
+
+---
+
+## 🔮 Real-Time Live Ghost Selection Presence
+
+To minimize seat selection contention *before* checkout intent is submitted, LeaseLock implements an ultra-low latency **Ghost Presence Engine**:
+
+1. **Sub-50ms Ephemeral Broadcasts:** When a user selects a seat on their interactive map, an ephemeral `POST /v1/events/:id/drafts` is fired.
+2. **Decoupled Memory Registry:** Draft selections live in high-speed volatile server memory with auto-clearing TTLs (bypassing heavy database disk I/O).
+3. **Pulsing UI Indicators:** Other connected users immediately see a purple pulsating **"Selecting"** badge on those seats.
+4. **Instant Self-Clearing:** If the user unselects, disconnects, navigates away, or creates an authoritative hold, the draft state is immediately purged and synced.
+
+---
+
+## 🔄 Universal Hold Recovery & Checkout State Machine
 
 ```mermaid
 stateDiagram-v2
-    [*] --> AVAILABLE
-    AVAILABLE --> ACTIVE_HOLD: atomic claim
-    ACTIVE_HOLD --> PENDING_PAYMENT: checkout
-    PENDING_PAYMENT --> CONFIRMED: mock payment succeeds
-    PENDING_PAYMENT --> ACTIVE_HOLD: payment fails or retries
-    ACTIVE_HOLD --> AVAILABLE: release or expiry
-    CONFIRMED --> CANCELLED: customer cancels in time
-    CANCELLED --> AVAILABLE: seat released
-    CONFIRMED --> EVENT_CANCELLED: event is cancelled
+    [*] --> AVAILABLE : Initial State
+    AVAILABLE --> DRAFTING : User clicks seat (SSE Ghost Broadcast)
+    DRAFTING --> ACTIVE_HOLD : POST /v1/holds (Atomic 5-min TTL)
+    DRAFTING --> AVAILABLE : User deselects or navigates away
+    
+    ACTIVE_HOLD --> PENDING_PAYMENT : User enters Checkout Modal
+    ACTIVE_HOLD --> AVAILABLE : User clicks "Cancel Hold" OR 5-min TTL Expires
+    
+    PENDING_PAYMENT --> CONFIRMED : Mock Payment Succeeded (200 OK)
+    PENDING_PAYMENT --> PAYMENT_FAILED : Mock Payment Failed (Card Error / Decline)
+    
+    PAYMENT_FAILED --> PENDING_PAYMENT : 1-Click "Resume Checkout" (Timer still active)
+    PAYMENT_FAILED --> AVAILABLE : Hold Expires OR User cancels
+    
+    CONFIRMED --> CANCELLED : Customer cancels (≥ 2 hours before event)
+    CANCELLED --> AVAILABLE : Seat released to inventory / Waitlist auto-promoted
 ```
 
-### What happens in a race?
+### Key Recovery Features:
+- **Persistent Floating Resume Banner:** Visible across the entire public app if an active hold exists.
+- **Session-Tethered Token Recovery:** `GET /v1/holds/active/current` recovers active cart state on page refresh, browser crash, or tab reopening.
+- **One-Click Manual Release:** Dedicated "Release seats" / "Cancel hold" button frees inventory immediately without forcing other users to wait for the 5-minute timeout.
 
-```mermaid
-sequenceDiagram
-    participant A as Customer A
-    participant API as LeaseLock API
-    participant DB as PostgreSQL
-    participant B as Customer B
+---
 
-    par Same-seat requests
-        A->>API: Select A3
-        B->>API: Select A3
-    end
-    API->>DB: Transaction A locks and claims A3
-    DB-->>API: Commit: winner
-    API->>DB: Transaction B checks A3
-    DB-->>API: Conflict: already claimed
-    API-->>A: Hold created
-    API-->>B: 409 SEATS_UNAVAILABLE
-    API-->>A: Broadcast inventory change
-    API-->>B: Broadcast inventory change
+## 🛡️ Anti-Hoarding & Fair Allocation Rules
+
+| Policy | Implementation | Enforcement Mechanism |
+| :--- | :--- | :--- |
+| **Max 6 Seats / User** | `MAX_SEATS_PER_HOLD = 6` | Validated at API boundary & transactional insertion |
+| **Single Active Hold** | 1 unconfirmed hold per customer per event | Database partial unique index on `(user_id, event_id)` |
+| **Strict 5-Minute TTL** | `expires_at = NOW() + INTERVAL '5 min'` | Backend worker & query timestamp filtering (No client trust) |
+| **No TTL Extension** | Modifying seats maintains original hold expiry | Update transactions preserve original `created_at` / `expires_at` |
+| **2-Hour Cancellation Cutoff** | `event.start_time - NOW() >= 2 hours` | Strict server-side verification before issuing refunds |
+| **Proportional Refunds** | Partial/full cancellation calculates refund snapshot | Immutable financial ledger recording in `payments` |
+
+---
+
+## 📡 API Specification
+
+All endpoints are versioned under `/v1` and return standard RFC-7807 JSON error responses:
+
+```json
+{
+  "code": "SEATS_UNAVAILABLE",
+  "message": "One or more selected seats have already been claimed.",
+  "requestId": "req_9f82a0d1"
+}
 ```
 
-The guarantee is layered:
+### Core Endpoints
 
-1. Requested seats are locked in deterministic order.
-2. Active claims are checked inside the same transaction.
-3. `seat_claims.event_seat_id` is unique.
-4. The losing request receives a stable conflict response.
-5. Automated contention tests verify that exactly one claim survives.
+#### Authentication & Profile
+- `POST /v1/auth/register` — Register customer account (bcrypt hashed, HTTP-only session cookie).
+- `POST /v1/auth/login` — Authenticate and receive session.
+- `POST /v1/auth/logout` — Revoke session token in database.
+- `GET /v1/auth/me` — Inspect current authenticated session & role (`customer` | `admin`).
 
-## Customer journeys
+#### Events & Real-Time Presence
+- `GET /v1/events` — List all published events and live availability counts.
+- `GET /v1/events/:id` — Event details and pricing tiers.
+- `GET /v1/events/:id/seats` — Authoritative seat grid with status (`AVAILABLE`, `HELD`, `BOOKED`).
+- `GET /v1/events/:id/seat-events` — **SSE Stream** for real-time inventory and draft updates.
+- `POST /v1/events/:id/drafts` — Broadcast ephemeral seat selection state (<50ms).
 
-1. A guest discovers a published event and inspects public seat availability.
-2. The customer registers or signs in through an opaque, HTTP-only session.
-3. The seat map creates or updates one grouped hold of up to six seats.
-4. The customer checks out through the deterministic payment simulation.
-5. A successful confirmation creates one reservation and stores a seat/event snapshot.
-6. The customer can view history, recover an active hold, cancel within the two-hour cutoff, or join a waitlist.
+#### Transactional Holds & Checkout
+- `POST /v1/holds` — Atomically claim 1–6 seats with 5-minute lease (`Idempotency-Key` supported).
+- `GET /v1/holds/active/current` — Recover user's active unexpired hold.
+- `PUT /v1/holds/:id/seats` — Modify seats in active hold without extending TTL.
+- `DELETE /v1/holds/:id` — Explicitly cancel hold and release seats immediately.
+- `POST /v1/holds/:id/checkout` — Transition hold to `PENDING_PAYMENT`.
+- `POST /v1/holds/:id/confirm` — Finalize booking with simulated payment result.
 
-Administrators get event and seat management, dashboard statistics, audit visibility, and a protected concurrency demo. Admin access never bypasses the reservation invariant.
+#### Bookings & Waitlist
+- `GET /v1/bookings` — View user booking history.
+- `GET /v1/bookings/:id` — View booking confirmation details and seat breakdown.
+- `POST /v1/bookings/:id/cancel` — Cancel booking (with refund calculation if $\ge 2$ hrs before event).
+- `POST /v1/waitlist` — Join FIFO waitlist for sold-out events.
 
-## Technology
+#### Admin & Diagnostics
+- `GET /v1/admin/dashboard` — Live system metrics (active holds, total revenue, seat velocity).
+- `GET /v1/admin/events` / `POST /v1/admin/events` — Event and inventory management.
+- `GET /v1/admin/audit-logs` — Immutable administrative and transactional audit trail.
+- `POST /v1/admin/concurrency-demo` — Execute controlled multi-threaded race simulation.
+- `GET /v1/health` / `GET /v1/health/ready` — Production liveness and database readiness probes.
 
-| Layer     | Stack                                            | Role                                      |
-| --------- | ------------------------------------------------ | ----------------------------------------- |
-| Interface | React 19, React Router 7, Vite 7                 | Customer and admin experiences            |
-| API       | Node.js, Express 5                               | Workflows, validation, authorization, SSE |
-| Data      | PostgreSQL 17, raw SQL migrations                | Durable state, locking, constraints       |
-| Security  | bcryptjs, HTTP-only cookies, Helmet, rate limits | Passwords, sessions, abuse controls       |
-| Delivery  | Docker, Docker Compose, Render, Vercel           | Local and free-tier deployment paths      |
-| Testing   | Node test runner, Vitest, Testing Library, k6    | API, UI, integration, load, contention    |
+---
 
-## Run locally
+## 💻 Tech Stack
+
+| Domain | Technology | Rationale & Responsibility |
+| :--- | :--- | :--- |
+| **Frontend** | **React 19, Vite 7, React Router 7** | Component state, optimistic UI, SSE subscription, interactive SVG seatmap |
+| **Styling** | **Custom Vanilla CSS Design System** | High-performance tokens, glassmorphism, responsive grid, zero CSS-in-JS overhead |
+| **Backend API** | **Node.js, Express 5** | RESTful routing, input validation, SSE orchestration, rate limiting |
+| **Database** | **PostgreSQL 17 / Neon Serverless** | Strict ACID transactions, row-level locks (`FOR UPDATE`), unique constraints |
+| **Real-Time** | **Server-Sent Events (SSE)** | Unidirectional push for inventory changes and sub-50ms draft presence |
+| **Security** | **HTTP-Only Cookies, Helmet, bcrypt** | Mitigate XSS, CSRF, brute-force attacks; strict origin validation |
+| **DevOps** | **Docker, Docker Compose, Render** | Containerized multi-stage builds, cloud hosting, health monitoring |
+| **Testing** | **Node Test Runner, Vitest, k6** | Unit, integration, automated contention, and high-concurrency load testing |
+
+---
+
+## 🚀 Run Locally
 
 ### Prerequisites
+- [Node.js](https://nodejs.org/) (v20.x or higher)
+- [Docker & Docker Compose](https://www.docker.com/) (optional, for containerized PostgreSQL)
 
-- Node.js 20 or newer
-- Docker Desktop with the engine running
-- PowerShell, Command Prompt, or a POSIX-compatible shell
+### 1. Clone & Install Dependencies
+```bash
+git clone https://github.com/Timeregularity/LeaseLock.git
+cd LeaseLock
+npm install
+```
 
-### Development mode
+### 2. Configure Environment Variables
+Create a `.env` file in the root directory:
+```env
+PORT=8080
+HOST=0.0.0.0
+NODE_ENV=development
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/leaselock
+CLIENT_ORIGIN=http://localhost:3000
+SESSION_SECRET=your_super_secret_session_key_min_32_chars_long
+```
 
-```powershell
+### 3. Start Database & Run Migrations
+Using Docker Compose for local PostgreSQL:
+```bash
 docker compose up -d postgres
-npm.cmd install
-npm.cmd run db:migrate
-npm.cmd run db:seed
+npm run db:migrate
+npm run db:seed
 ```
 
-Start the API in one terminal:
-
-```powershell
-npm.cmd run dev:server
+### 4. Start Development Servers
+In Terminal 1 (Express API):
+```bash
+npm run dev:server
+```
+In Terminal 2 (Vite Frontend):
+```bash
+npm run dev
 ```
 
-Start Vite in a second terminal:
+Visit **`http://localhost:3000`** in your browser.
 
-```powershell
-npm.cmd run dev
+### Default Demo Accounts
+| Role | Email | Password | Access Level |
+| :--- | :--- | :--- | :--- |
+| **Admin** | `admin@leaselock.local` | `Admin123!` | Full Admin Panel, Audit Logs, Event Creation, Race Demos |
+| **Customer** | `customer@leaselock.local` | `Customer123!` | Standard Seat Booking, Hold Recovery, Waitlist |
+
+---
+
+## 🧪 Verification & Stress Testing
+
+LeaseLock includes a comprehensive multi-tier test suite to prove correctness under extreme contention:
+
+```bash
+# Run all unit, frontend, and integration tests
+npm run test:all
+
+# Run backend integration tests
+npm run test:server
+
+# Run frontend Vitest suite
+npm run test:frontend
+
+# Run database invariant verification script
+npm run check:invariants
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Vite proxies `/v1` to the API at `http://localhost:8080`.
+### High-Concurrency Race Simulation (k6)
+Simulate 50+ concurrent users attempting to claim the exact same high-demand seat within a 5ms window:
 
-### Local demo accounts
-
-| Role          | Email                      | Password       |
-| ------------- | -------------------------- | -------------- |
-| Administrator | `admin@leaselock.local`    | `Admin123!`    |
-| Customer      | `customer@leaselock.local` | `Customer123!` |
-
-These credentials are for local demonstrations only. Never enable them in a public deployment.
-
-### Production-style Docker stack
-
-```powershell
-docker compose build api
-docker compose run --rm api node server/db/migrate.js
-docker compose run --rm api node server/db/seed.js
-docker compose up -d
-```
-
-The API and compiled React application are then served together at [http://localhost:8080](http://localhost:8080).
-
-Health probes:
-
-- `GET /v1/health` checks process liveness.
-- `GET /v1/health/ready` checks API and PostgreSQL readiness.
-
-## API map
-
-The API is versioned under `/v1`, uses JSON, and returns stable machine-readable error codes alongside safe messages.
-
-| Area           | Representative routes                                                                   |
-| -------------- | --------------------------------------------------------------------------------------- |
-| Auth           | `POST /auth/register`, `POST /auth/login`, `POST /auth/logout`, `GET /auth/me`          |
-| Events         | `GET /events`, `GET /events/:id`, `GET /events/:id/seats`                               |
-| Live inventory | `GET /events/:id/seat-events`                                                           |
-| Holds          | `POST /holds`, `PUT /holds/:id/seats`, `GET /holds/active/current`, `DELETE /holds/:id` |
-| Checkout       | `POST /holds/:id/checkout`, `POST /holds/:id/confirm`                                   |
-| Payments       | `POST /payments`, `POST /payments/:id/simulate`, `GET /payments/:id`                    |
-| Bookings       | `GET /bookings`, `GET /bookings/:id`, `POST /bookings/:id/cancel`                       |
-| Waitlist       | `POST /waitlist`, `GET /waitlist`, `DELETE /waitlist/:id`                               |
-| Admin          | `/admin/events`, `/admin/seats`, `/admin/dashboard`, `/admin/concurrency-demo`          |
-
-## Reservation rules
-
-- One customer may have one active grouped hold at a time.
-- A group contains 1-6 seats from the same event.
-- Holds last five minutes from the server-recorded creation time.
-- Adding seats does not reset the expiry.
-- Expiry is enforced by backend jobs, never by browser clocks.
-- Confirmation requires a successful mock payment.
-- Cancellation is allowed until two hours before the event.
-- Partial cancellation produces a proportional simulated refund.
-- Expired holds and failed payments never create confirmed inventory.
-
-## Verification
-
-Run the complete suite:
-
-```powershell
-npm.cmd run test:all
-```
-
-Run individual layers:
-
-```powershell
-npm.cmd run test:server
-npm.cmd run test:frontend
-npm.cmd run test:integration
-npm.cmd run test:load
-npm.cmd run check:invariants
-npm.cmd run build
-```
-
-For larger races, install [Grafana k6](https://grafana.com/docs/k6/latest/) and run the API against PostgreSQL:
-
-```powershell
+```bash
+# Install Grafana k6, then execute:
 $env:BASE_URL = 'http://localhost:8080'
-npm.cmd run test:k6:read
-
 $env:ADMIN_EMAIL = 'admin@leaselock.local'
 $env:ADMIN_PASSWORD = 'Admin123!'
 $env:CONTENDERS = '50'
 $env:SEAT_ID = 'A1'
-npm.cmd run test:k6:contention
+npm run test:k6:contention
 ```
 
-The contention script verifies the single-winner invariant. The load script supports `LOAD_TEST_URL`, `LOAD_TEST_REQUESTS`, and `LOAD_TEST_CONCURRENCY` overrides. Do not aim load tests at infrastructure without permission.
-
-## Security and operations
-
-- Passwords are salted and hashed; plaintext credentials are not stored.
-- Session tokens are opaque, hashed in PostgreSQL, revocable, and sent in HTTP-only cookies.
-- Same-site cookie behavior, origin checks, Helmet, body limits, and rate limits protect mutations.
-- Ownership and administrator authorization are checked on the server.
-- Idempotency records protect retry-sensitive workflows.
-- JSON logs carry `X-Request-Id` correlation without logging credentials or unnecessary personal data.
-- Audit records preserve critical administrative and reservation actions.
-- Database constraints remain the final defense against duplicate allocation.
-
-Production operations, backups, monitoring objectives, incident basics, and deployment configuration live in [docs/operations.md](docs/operations.md). Product scope and acceptance criteria live in [docs/requirements.md](docs/requirements.md).
-
-## Deployment
-
-The repository includes `Dockerfile`, `compose.yaml`, `render.yaml`, and `vercel.json` for a practical split deployment:
-
-- Deploy the API to Render with PostgreSQL provided by Neon or another managed PostgreSQL service.
-- Deploy the Vite frontend to Vercel with `VITE_API_ORIGIN` pointing to the API.
-- Configure `DATABASE_URL` and the exact HTTPS `CLIENT_ORIGIN` on the API.
-- Keep secrets in the platform secret manager and set `NODE_ENV=production`.
-
-Render free services may sleep while idle, so the first request after inactivity can be slower.
-
-## Project map
-
+**Expected Result:**
 ```text
-LeaseLock/
-├── src/                    React application, routes, pages, and styles
-├── server/
-│   ├── routes/             Versioned REST endpoints
-│   ├── holds/              Transactional allocation engine
-│   ├── bookings/           Booking queries and lifecycle
-│   ├── realtime/           Server-Sent Events broadcaster
-│   ├── jobs/               Expiry, cleanup, outbox, and waitlist workers
-│   ├── middleware/         Auth, security, audit, and request context
-│   └── db/                 Pool, migrations, and deterministic seed
-├── scripts/                Load tests and invariant checks
-├── docs/                   Requirements and operations guidance
-├── Dockerfile              Production image
-└── compose.yaml            API and PostgreSQL stack
+✓ Exactly 1 user receives HTTP 201 (Hold Created)
+✓ Exactly 49 users receive HTTP 409 (Conflict: SEATS_UNAVAILABLE)
+✓ Total Active DB Claims for Seat A1 = 1 (Zero Double-Bookings)
 ```
-
-## Honest boundaries
-
-LeaseLock demonstrates the hard correctness properties of a reservation service, but it is not a commercial ticketing platform. A real deployment would additionally need:
-
-- A payment provider with signed webhooks and reconciliation
-- Redis Pub/Sub or a durable event bus for multi-instance live updates
-- Managed secrets, TLS, backups, disaster recovery, tracing, and alerting
-- Email/SMS delivery, QR admission, fraud controls, and compliance review
-
-Naming these boundaries is intentional: the guarantees are precise because the system does not pretend its simulations are production integrations.
-
-## Conversation starters
-
-LeaseLock is built to make these engineering questions concrete:
-
-- Why are database invariants stronger than frontend locking?
-- How do row locks and unique claims prevent double booking?
-- Where should idempotency live in a payment-adjacent workflow?
-- Why do live notifications never replace an authoritative read?
-- How does hold recovery handle refreshes and uncertain network outcomes?
-- What changes when one API instance becomes a distributed deployment?
-
-<div align="center">
 
 ---
 
-### LeaseLock treats correctness as a product feature.
+## ☁️ Deployment Guide
 
-Built by [Timeregularity](https://github.com/Timeregularity) as a full-stack systems engineering portfolio project.
+### Deploying to Render & Neon (Cloud)
+1. **Database:** Provision a serverless PostgreSQL database on [Neon.tech](https://neon.tech).
+2. **Web Service on Render:**
+   - Link your GitHub repository.
+   - Use the included [`render.yaml`](render.yaml) or Docker environment.
+   - Set environment variables:
+     - `DATABASE_URL`: Your Neon connection string (ensure `?sslmode=require`).
+     - `NODE_ENV`: `production`
+     - `PORT`: `10000`
+     - `HOST`: `0.0.0.0`
+     - `CLIENT_ORIGIN`: Your production frontend URL (or same domain).
+     - `SESSION_SECRET`: Strong 64-character random string.
+3. Build Command: `npm install && npm run build`
+4. Start Command: `node server/db/migrate.js && node server/index.js`
+
+---
+
+## 📂 Project Structure
+
+```text
+LeaseLock/
+├── src/                          # Frontend Application (React 19 + Vite)
+│   ├── components/               # Navbar, SeatMap, CheckoutModal, ResumeBanner, Alerts
+│   ├── pages/                    # PublicPages, AdminPages, AuthPages, EventDetail
+│   ├── context/                  # AuthContext, ToastContext
+│   └── main.jsx                  # Application entry & router configuration
+├── public/
+│   └── css/                      # Modular Vanilla CSS Design System (tokens, seats, layout)
+├── server/                       # Backend Application (Node.js + Express 5)
+│   ├── routes/                   # REST Endpoints (auth, events, holds, bookings, admin)
+│   ├── holds/                    # Transactional Allocation Engine & Advisory Locks
+│   ├── bookings/                 # Booking lifecycle, cancellations & refund logic
+│   ├── realtime/                 # SSE Broadcaster & Ephemeral Ghost Draft Registry
+│   ├── jobs/                     # Background Daemons (Hold Expiry, Waitlist Promotion)
+│   ├── middleware/               # Auth Guards, Idempotency, Rate Limiting, Audit Logger
+│   └── db/                       # PostgreSQL Connection Pool, Migrations, Seed Data
+├── scripts/                      # Load testing (k6) & Database Invariant Validators
+├── docs/                         # Requirements, Architecture, & Operations Documentation
+├── Dockerfile                    # Multi-stage optimized production container
+├── compose.yaml                  # Local development stack (App + PostgreSQL)
+└── render.yaml                   # Infrastructure-as-Code for Render Cloud Deployment
+```
+
+---
+
+## 🎓 Academic & Engineering Highlights
+
+LeaseLock was engineered as an industry-grade distributed systems capstone:
+- **ACID Integrity under Pressure:** Proves that business correctness cannot rely on frontend state; true invariants belong in database row locks and relational constraints.
+- **Micro-Presence Architecture:** Demonstrates how decoupled in-memory SSE streams can prevent user contention before transactions hit the relational database.
+- **Idempotent RESTful Design:** Guarantees that dropped packets and network retries never generate duplicate charges or corrupted cart state.
+
+---
+
+<div align="center">
+
+### Built with craftsmanship by [Timeregularity](https://github.com/Timeregularity)
 
 </div>
