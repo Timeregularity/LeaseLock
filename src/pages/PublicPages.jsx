@@ -66,13 +66,30 @@ export function SeatSelection() {
   const [event, setEvent] = useState(null)
   const [seats, setSeats] = useState([])
   const [selectedIds, setSelectedIds] = useState([])
+  const [draftsByOthers, setDraftsByOthers] = useState([])
   const [hold, setHold] = useState(null)
   const [pending, setPending] = useState('')
   const [secondsLeft, setSecondsLeft] = useState(0)
 
+  const clientId = useMemo(() => {
+    let stored = sessionStorage.getItem('ll_client_id')
+    if (!stored) {
+      stored = crypto.randomUUID()
+      sessionStorage.setItem('ll_client_id', stored)
+    }
+    return stored
+  }, [])
+
   const selectedSeats = useMemo(() => selectedIds.map(seatId => seats.find(seat => seat.id === seatId)).filter(Boolean), [selectedIds, seats])
   const selectedTotal = selectedSeats.reduce((sum, seat) => sum + seat.price, 0)
   const heldIds = hold?.seatIds || []
+
+  const syncDrafts = (nextSelectedIds) => {
+    apiRequest(`/v1/events/${id}/drafts`, {
+      method: 'POST',
+      body: JSON.stringify({ clientId, seatIds: nextSelectedIds })
+    }).catch(() => {})
+  }
 
   const refresh = async (silent = false) => {
     try {
@@ -123,13 +140,38 @@ export function SeatSelection() {
   }, [hold?.expiresAt])
 
   useEffect(() => {
-    const stream = new EventSource(apiUrl(`/v1/events/${id}/seat-events`), { withCredentials: true })
+    const stream = new EventSource(apiUrl(`/v1/events/${id}/seat-events?clientId=${clientId}`), { withCredentials: true })
+    
+    stream.addEventListener('connected', (event) => {
+      try {
+        const data = JSON.parse(event.data)
+        if (data.drafts) {
+          const others = data.drafts.filter(d => d.clientId !== clientId).flatMap(d => d.seatIds)
+          setDraftsByOthers([...new Set(others)])
+        }
+      } catch(e) {}
+    })
+
+    stream.addEventListener('drafts-changed', (event) => {
+      try {
+        const data = JSON.parse(event.data)
+        if (data.drafts) {
+          const others = data.drafts.filter(d => d.clientId !== clientId).flatMap(d => d.seatIds)
+          setDraftsByOthers([...new Set(others)])
+        }
+      } catch(e) {}
+    })
+
     stream.addEventListener('seats-changed', () => {
       recoverHold()
       refresh(true)
     })
-    return () => stream.close()
-  }, [id])
+    
+    return () => {
+      stream.close()
+      syncDrafts([])
+    }
+  }, [id, clientId])
 
   useEffect(() => {
     const poll = setInterval(() => {
@@ -160,13 +202,23 @@ export function SeatSelection() {
       return
     }
     if (seat.status !== 'available' && seat.status !== 'held-self') return
+    
     setSelectedIds(current => {
-      if (current.includes(seat.id)) return current.filter(value => value !== seat.id)
-      if (current.length >= 6) {
-        showToast('You can select up to 6 seats.', 'warning', 'Selection limit')
-        return current
+      let next
+      if (current.includes(seat.id)) {
+        next = current.filter(value => value !== seat.id)
+      } else {
+        if (current.length >= 6) {
+          showToast('You can select up to 6 seats.', 'warning', 'Selection limit')
+          return current
+        }
+        if (draftsByOthers.includes(seat.id)) {
+          showToast(`Note: Another user is also looking at Seat ${seat.id}. First to checkout gets the hold.`, 'info', 'High demand')
+        }
+        next = [...current, seat.id].sort()
       }
-      return [...current, seat.id].sort()
+      syncDrafts(next)
+      return next
     })
   }
 
@@ -182,6 +234,7 @@ export function SeatSelection() {
         body: JSON.stringify({ eventId: id, seatIds: requestedIds })
       })
       clearIdempotencyKey('hold', logical)
+      syncDrafts([])
       setHold({ ...result, seatIds: result.seatIds || requestedIds, totalPrice: result.totalPrice ?? selectedTotal })
       setSeats(items => items.map(item => requestedIds.includes(item.id) ? { ...item, status: 'held-self' } : item))
       setSelectedIds([])
@@ -190,7 +243,11 @@ export function SeatSelection() {
       const unavailable = err.details?.unavailableSeatIds || err.details?.seatIds || []
       if (err.status === 409 || ['SEATS_UNAVAILABLE', 'SEAT_ALREADY_HELD', 'SEAT_ALREADY_RESERVED'].includes(err.code)) {
         setSeats(items => items.map(item => unavailable.includes(item.id) ? { ...item, status: 'held-other' } : item))
-        setSelectedIds(current => current.filter(seatId => !unavailable.includes(seatId)))
+        setSelectedIds(current => {
+          const next = current.filter(seatId => !unavailable.includes(seatId))
+          syncDrafts(next)
+          return next
+        })
         showToast(unavailable.length ? `Seat${unavailable.length === 1 ? '' : 's'} ${unavailable.join(', ')} ${unavailable.length === 1 ? 'was' : 'were'} just taken. Review your selection and try again.` : 'One or more selected seats were just taken. Refresh and try again.', 'warning', 'Seats unavailable')
         refresh(true)
       } else {
@@ -329,7 +386,8 @@ export function SeatSelection() {
                       const isUnderPayment = seat.status === 'under-payment'
                       const isHeldOther = seat.status === 'held-other'
                       const isReserved = seat.status === 'reserved'
-                      const statusClass = selected ? 'selected' : (hold?.seatIds?.includes(seat.id) ? 'held-self' : seat.status)
+                      const isSelectingOther = !selected && !isHeldSelf && draftsByOthers.includes(seat.id) && seat.status === 'available'
+                      const statusClass = selected ? 'selected' : (hold?.seatIds?.includes(seat.id) ? 'held-self' : isSelectingOther ? 'selecting-other' : seat.status)
 
                       return (
                         <button
@@ -338,7 +396,7 @@ export function SeatSelection() {
                           disabled={!!pending || !!hold || (!selected && ['held-other', 'under-payment', 'reserved', 'unavailable'].includes(seat.status))}
                           onClick={() => toggleSeat(seat)}
                           aria-pressed={selected || isHeldSelf}
-                          title={isUnderPayment ? `Seat ${seat.id} — Under payment by another customer` : isHeldOther ? `Seat ${seat.id} — Held by another customer` : isReserved ? `Seat ${seat.id} — Reserved` : isHeldSelf ? `Seat ${seat.id} — Your hold` : `Seat ${seat.id} — ₹${seat.price}`}
+                          title={isUnderPayment ? `Seat ${seat.id} — Under payment by another customer` : isHeldOther ? `Seat ${seat.id} — Held by another customer` : isSelectingOther ? `Seat ${seat.id} — Another customer is currently selecting this seat` : isReserved ? `Seat ${seat.id} — Reserved` : isHeldSelf ? `Seat ${seat.id} — Your hold` : `Seat ${seat.id} — ₹${seat.price}`}
                           aria-label={`Seat ${seat.id}, ${selected ? 'selected' : seat.status}, ₹${seat.price}`}
                         >
                           <span className="seat-number">{seat.id}</span>
@@ -348,6 +406,7 @@ export function SeatSelection() {
                              isHeldSelf ? 'Your hold' :
                              isUnderPayment ? <><i className="seat-pulse-dot"/>In payment</> :
                              isHeldOther ? <><i className="seat-pulse-dot"/>Holding</> :
+                             isSelectingOther ? <><i className="seat-pulse-dot"/>Selecting</> :
                              isReserved ? 'Reserved' : 'Available'}
                           </span>
                         </button>
@@ -360,6 +419,7 @@ export function SeatSelection() {
             <div className="seat-legend">
               <span className="legend-item"><i className="legend-swatch available"/>✓ Available</span>
               <span className="legend-item"><i className="legend-swatch selected"/>✓ Your selection</span>
+              <span className="legend-item"><i className="legend-swatch selecting-other"/>🟣 Selecting by another</span>
               <span className="legend-item"><i className="legend-swatch held-other"/>⌛ Holding by another</span>
               <span className="legend-item"><i className="legend-swatch under-payment"/>💳 Under payment</span>
               <span className="legend-item"><i className="legend-swatch reserved"/>× Reserved</span>

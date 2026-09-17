@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { pool } from '../db/pool.js'
 import { eventSelect, toEvent } from '../events/queries.js'
-import { subscribeToSeatEvents } from '../realtime/seat-events.js'
+import { subscribeToSeatEvents, updateClientDraft } from '../realtime/seat-events.js'
 import { optionalAuth } from '../middleware/auth.js'
 import { expireHolds } from '../holds/service.js'
 
@@ -21,11 +21,24 @@ eventsRouter.get('/:identifier/seat-events',async(request,response,next)=>{
     const event=await pool.query("SELECT slug FROM events WHERE (id::text=$1 OR slug=$1) AND status='PUBLISHED'",[request.params.identifier])
     if(!event.rowCount)return response.status(404).json({code:'EVENT_NOT_FOUND',message:'The event could not be found.'})
     response.status(200).set({'Content-Type':'text/event-stream','Cache-Control':'no-cache, no-transform','Connection':'keep-alive','X-Accel-Buffering':'no'});response.flushHeaders()
-    const unsubscribe=subscribeToSeatEvents(event.rows[0].slug,response)
+    const clientId = String(request.query.clientId || '')
+    const unsubscribe=subscribeToSeatEvents(event.rows[0].slug,response,clientId)
     const heartbeat=setInterval(()=>response.write(': keep-alive\n\n'),20_000);heartbeat.unref()
     request.on('close',()=>{clearInterval(heartbeat);unsubscribe()})
   }catch(error){next(error)}
 })
+
+eventsRouter.post('/:identifier/drafts', async (request, response, next) => {
+  try {
+    const { clientId, seatIds = [] } = request.body || {}
+    if (!clientId) return response.status(400).json({ code: 'CLIENT_ID_REQUIRED' })
+    const event = await pool.query("SELECT slug FROM events WHERE (id::text=$1 OR slug=$1) AND status='PUBLISHED'", [request.params.identifier])
+    if (!event.rowCount) return response.status(404).json({ code: 'EVENT_NOT_FOUND' })
+    updateClientDraft(event.rows[0].slug, String(clientId), Array.isArray(seatIds) ? seatIds : [])
+    response.json({ ok: true })
+  } catch (error) { next(error) }
+})
+
 
 eventsRouter.get('/:identifier', async (request,response,next) => {
   try {

@@ -98,6 +98,37 @@
   font-size:.50rem;
 }
 
+/* Selecting by Another User (Purple / Violet live intent) */
+.seat-selecting-other{
+  background:#f5f3ff;
+  border:1.5px dashed #8b5cf6;
+  color:#5b21b6;
+  box-shadow:0 0 0 2px rgba(139,92,246,.12);
+}
+.seat-selecting-other:hover{
+  border-color:#7c3aed;
+  box-shadow:0 3px 10px rgba(124,58,237,.2);
+}
+.seat-selecting-other .seat-price{display:none}
+.seat-selecting-other .seat-state{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:3px;
+  color:#6d28d9;
+  font-weight:800;
+  font-size:.50rem;
+}
+.seat-selecting-other .seat-pulse-dot{
+  background:#8b5cf6;
+  animation:pulse-purple 1.3s infinite;
+}
+
+@keyframes pulse-purple{
+  0%,100%{opacity:1;transform:scale(1);box-shadow:0 0 0 0 rgba(139,92,246,.6)}
+  50%{opacity:.4;transform:scale(1.25);box-shadow:0 0 0 4px rgba(139,92,246,0)}
+}
+
 /* Reserved / Booked */
 .seat-reserved{
   background:#e8e5e2;
@@ -178,6 +209,7 @@
 }
 .legend-swatch.available{background:#f2f7f3;border:1px solid #9eb7a8}
 .legend-swatch.selected{background:var(--pine);border:1px solid var(--forest)}
+.legend-swatch.selecting-other{background:#f5f3ff;border:1.5px dashed #8b5cf6}
 .legend-swatch.held-other{background:#fdf8ef;border:1px dashed #deb25e}
 .legend-swatch.under-payment{background:#fae5de;border:1.5px solid #df6d4f}
 .legend-swatch.reserved{background:#b8b1ab}
