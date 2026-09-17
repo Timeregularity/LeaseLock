@@ -1,9 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { Layout, PageHeader, Spinner, StatusBadge, useToast } from '../components'
+import { Empty, Layout, PageHeader, Spinner, StatusBadge, useToast } from '../components'
 import { apiRequest, apiUrl, clearIdempotencyKey, idempotencyKey } from '../api'
 import { useAuth } from '../auth'
 import { initialReservations } from '../data'
+
+function formatSeconds(sec) {
+  const m = Math.floor(sec / 60)
+  const s = sec % 60
+  return `${m}:${s < 10 ? '0' : ''}${s}`
+}
 
 function AuthPage({ register = false }) {
   const navigate = useNavigate(); const location=useLocation(); const {refreshUser}=useAuth(); const showToast = useToast(); const [busy,setBusy] = useState(false); const [error,setError] = useState('')
@@ -62,6 +68,7 @@ export function SeatSelection() {
   const [selectedIds, setSelectedIds] = useState([])
   const [hold, setHold] = useState(null)
   const [pending, setPending] = useState('')
+  const [secondsLeft, setSecondsLeft] = useState(0)
 
   const selectedSeats = useMemo(() => selectedIds.map(seatId => seats.find(seat => seat.id === seatId)).filter(Boolean), [selectedIds, seats])
   const selectedTotal = selectedSeats.reduce((sum, seat) => sum + seat.price, 0)
@@ -96,6 +103,26 @@ export function SeatSelection() {
   }, [id])
 
   useEffect(() => {
+    if (!hold?.expiresAt) {
+      setSecondsLeft(0)
+      return
+    }
+    const updateCountdown = () => {
+      const remaining = Math.max(0, Math.floor((new Date(hold.expiresAt).getTime() - Date.now()) / 1000))
+      setSecondsLeft(remaining)
+      if (remaining === 0) {
+        setHold(null)
+        setSelectedIds([])
+        refresh(true)
+        showToast('Your hold has expired. The seats have been released.', 'warning', 'Hold expired')
+      }
+    }
+    updateCountdown()
+    const timer = setInterval(updateCountdown, 1000)
+    return () => clearInterval(timer)
+  }, [hold?.expiresAt])
+
+  useEffect(() => {
     const stream = new EventSource(apiUrl(`/v1/events/${id}/seat-events`), { withCredentials: true })
     stream.addEventListener('seats-changed', () => {
       recoverHold()
@@ -116,6 +143,10 @@ export function SeatSelection() {
 
   async function toggleSeat(seat) {
     if (pending) return
+    if (hold?.bookingId) {
+      showToast('You have an active checkout in progress. Please resume checkout or wait for your session timer to expire.', 'warning', 'Checkout active')
+      return
+    }
     if (seat.status === 'under-payment') {
       showToast(`Seat ${seat.id} is currently under payment by another customer. It will release if checkout is not completed.`, 'warning', 'Under payment')
       return
@@ -230,6 +261,30 @@ export function SeatSelection() {
           </div>
           <button className="btn btn-outline-secondary btn-sm" onClick={() => refresh()} disabled={!!pending}>↻ Refresh seats</button>
         </div>
+
+        {hold?.bookingId && (
+          <div className="container mb-4">
+            <div className="card border-0 shadow-sm rounded-4 p-3 d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-3" style={{ background: 'linear-gradient(135deg, rgba(223, 109, 79, 0.12), rgba(222, 178, 94, 0.12))', border: '1px solid rgba(223, 109, 79, 0.35)' }}>
+              <div className="d-flex align-items-center gap-3">
+                <span className="fs-2">⏱️</span>
+                <div>
+                  <h3 className="h6 mb-1 fw-bold text-dark">
+                    Checkout in progress for Seat{hold.seatIds?.length === 1 ? '' : 's'} {hold.seatIds?.join(', ')}
+                  </h3>
+                  <p className="mb-0 text-muted small">
+                    Time remaining: <strong className="text-danger font-monospace fs-6">{formatSeconds(secondsLeft)}</strong>. Seats are reserved exclusively for you during this checkout window.
+                  </p>
+                </div>
+              </div>
+              <div>
+                <button className="btn btn-primary px-4 fw-semibold" onClick={() => navigate(`/checkout/${hold.bookingId}`, { state: { hold } })}>
+                  Resume Checkout →
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="container seat-layout">
           <section className="seat-map-card">
             <div className="seat-map-top">
@@ -250,20 +305,20 @@ export function SeatSelection() {
                   <div className="seat-row">
                     {seats.filter(seat => seat.section === section).map(seat => {
                       const selected = selectedIds.includes(seat.id)
-                      const isHeldSelf = seat.status === 'held-self' || selected
+                      const isHeldSelf = (hold?.seatIds?.includes(seat.id)) || selected
                       const isUnderPayment = seat.status === 'under-payment'
                       const isHeldOther = seat.status === 'held-other'
                       const isReserved = seat.status === 'reserved'
-                      const statusClass = selected ? 'selected' : seat.status
+                      const statusClass = selected ? 'selected' : (hold?.seatIds?.includes(seat.id) ? 'held-self' : seat.status)
 
                       return (
                         <button
                           key={seat.id}
                           className={`seat seat-${statusClass}`}
-                          disabled={!!pending || (!selected && ['held-other', 'under-payment', 'reserved', 'unavailable'].includes(seat.status))}
+                          disabled={!!pending || hold?.bookingId || (!selected && ['held-other', 'under-payment', 'reserved', 'unavailable'].includes(seat.status))}
                           onClick={() => toggleSeat(seat)}
-                          aria-pressed={selected}
-                          title={isUnderPayment ? `Seat ${seat.id} — Under payment by another customer` : isHeldOther ? `Seat ${seat.id} — Held by another customer` : isReserved ? `Seat ${seat.id} — Reserved` : `Seat ${seat.id} — ₹${seat.price}`}
+                          aria-pressed={selected || isHeldSelf}
+                          title={isUnderPayment ? `Seat ${seat.id} — Under payment by another customer` : isHeldOther ? `Seat ${seat.id} — Held by another customer` : isReserved ? `Seat ${seat.id} — Reserved` : isHeldSelf ? `Seat ${seat.id} — Your hold` : `Seat ${seat.id} — ₹${seat.price}`}
                           aria-label={`Seat ${seat.id}, ${selected ? 'selected' : seat.status}, ₹${seat.price}`}
                         >
                           <span className="seat-number">{seat.id}</span>
@@ -290,40 +345,58 @@ export function SeatSelection() {
               <span className="legend-item"><i className="legend-swatch reserved"/>× Reserved</span>
             </div>
           </section>
+
           <aside className="hold-panel" aria-live="polite">
-            <div className="hold-empty">
-              <div className="hold-empty-icon">⌁</div>
-              <h2>{selectedIds.length ? `${selectedIds.length} seat${selectedIds.length === 1 ? '' : 's'} selected` : 'No seats selected'}</h2>
-              <p>{selectedIds.length ? 'Your seats will be locked for five minutes when you proceed to checkout.' : 'Choose available seats, then continue to payment to start your five-minute hold.'}</p>
-              {selectedIds.length > 0 && (
-                <>
-                  <div className="held-seat-list">
-                    {selectedIds.map(seatId => (
-                      <button key={seatId} disabled={!!pending} onClick={() => toggleSeat(seats.find(seat => seat.id === seatId))} aria-label={`Remove seat ${seatId}`}>
-                        {seatId} ×
-                      </button>
-                    ))}
-                  </div>
-                  <div className="hold-details">
-                    <div><span>Seats</span><strong>{selectedIds.length}</strong></div>
-                    <div><span>Total</span><strong>₹{selectedTotal}</strong></div>
-                  </div>
-                  <button className="btn btn-primary btn-lg w-100" disabled={!!pending} onClick={confirm}>
-                    {pending === 'confirm' ? <Spinner label="Starting payment…"/> : 'Continue to payment'}
-                  </button>
-                </>
-              )}
-              <div className="state-flow"><span>Select seats</span><i>→</i><span>Hold & pay</span><i>→</i><span>Confirmed</span></div>
-            </div>
+            {hold?.bookingId ? (
+              <div className="hold-empty text-center p-3">
+                <div className="hold-empty-icon" style={{ color: '#df6d4f' }}>💳</div>
+                <h2>Checkout In Progress</h2>
+                <p className="text-muted small">Seats <strong>{hold.seatIds?.join(', ')}</strong> are held while you complete payment.</p>
+                <div className="p-3 my-3 rounded-3" style={{ background: 'rgba(223, 109, 79, 0.08)', border: '1px solid rgba(223, 109, 79, 0.25)' }}>
+                  <small className="text-muted d-block text-uppercase fw-bold mb-1" style={{ fontSize: '0.75rem', letterSpacing: '0.05em' }}>Time Remaining</small>
+                  <span className="fs-2 fw-bold font-monospace" style={{ color: '#df6d4f' }}>{formatSeconds(secondsLeft)}</span>
+                </div>
+                <div className="hold-details mb-3">
+                  <div><span>Seats</span><strong>{hold.seatIds?.length}</strong></div>
+                  <div><span>Total</span><strong>₹{hold.totalPrice}</strong></div>
+                </div>
+                <button className="btn btn-primary btn-lg w-100 mb-2" onClick={() => navigate(`/checkout/${hold.bookingId}`, { state: { hold } })}>
+                  Resume Checkout →
+                </button>
+                <small className="text-muted d-block mt-2">Seat changes are locked while in checkout to prevent inventory hoarding.</small>
+              </div>
+            ) : (
+              <div className="hold-empty">
+                <div className="hold-empty-icon">⌁</div>
+                <h2>{selectedIds.length ? `${selectedIds.length} seat${selectedIds.length === 1 ? '' : 's'} selected` : 'No seats selected'}</h2>
+                <p>{selectedIds.length ? 'Your seats will be locked for five minutes when you proceed to checkout.' : 'Choose available seats, then continue to payment to start your five-minute hold.'}</p>
+                {selectedIds.length > 0 && (
+                  <>
+                    <div className="held-seat-list">
+                      {selectedIds.map(seatId => (
+                        <button key={seatId} disabled={!!pending} onClick={() => toggleSeat(seats.find(seat => seat.id === seatId))} aria-label={`Remove seat ${seatId}`}>
+                          {seatId} ×
+                        </button>
+                      ))}
+                    </div>
+                    <div className="hold-details">
+                      <div><span>Seats</span><strong>{selectedIds.length}</strong></div>
+                      <div><span>Total</span><strong>₹{selectedTotal}</strong></div>
+                    </div>
+                    <button className="btn btn-primary btn-lg w-100" disabled={!!pending} onClick={confirm}>
+                      {pending === 'confirm' ? <Spinner label="Starting payment…"/> : 'Continue to payment'}
+                    </button>
+                  </>
+                )}
+                <div className="state-flow"><span>Select seats</span><i>→</i><span>Hold & pay</span><i>→</i><span>Confirmed</span></div>
+              </div>
+            )}
           </aside>
         </div>
       </main>
     </Layout>
   )
 }
-
-
-function Empty({icon,title,text}){return <div className="empty-state"><div className="empty-icon">{icon}</div><h2>{title}</h2><p>{text}</p></div>}
 
 function reservationSeats(reservation){return reservation.seats?.map(seat=>typeof seat==='string'?seat:seat.id||seat.seatId)||[reservation.seat].filter(Boolean)}
 

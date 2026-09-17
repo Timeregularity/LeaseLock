@@ -52,11 +52,12 @@ holdsRouter.get('/active/current',async(request,response,next)=>{
   try{
     const eventId=String(request.query.eventId||'')
     const hold=await withTransaction(async client=>{await expireHolds(client);const result=await client.query(`SELECT h.id,h.status,h.expires_at,e.slug,
-      coalesce(sum(hs.price_paise),0) total_paise,array_agg(es.seat_label ORDER BY es.seat_label) seat_ids
+      coalesce(sum(hs.price_paise),0) total_paise,array_agg(es.seat_label ORDER BY es.seat_label) seat_ids,
+      (SELECT b.id FROM bookings b WHERE b.source_hold_id=h.id AND b.status='PENDING_PAYMENT' LIMIT 1) booking_id
       FROM holds h JOIN events e ON e.id=h.event_id JOIN hold_seats hs ON hs.hold_id=h.id JOIN event_seats es ON es.id=hs.event_seat_id
       WHERE h.user_id=$1 AND h.status='ACTIVE' AND h.expires_at>now() AND ($2='' OR e.slug=$2 OR e.id::text=$2)
       GROUP BY h.id,e.slug ORDER BY h.created_at DESC LIMIT 1`,[request.user.id,eventId]);return result.rows[0]||null})
-    response.json({hold:hold?{id:hold.id,eventId:hold.slug,seatIds:hold.seat_ids,status:hold.status,totalPrice:Number(hold.total_paise)/100,expiresAt:hold.expires_at}:null})
+    response.json({hold:hold?{id:hold.id,eventId:hold.slug,seatIds:hold.seat_ids,status:hold.status,totalPrice:Number(hold.total_paise)/100,expiresAt:hold.expires_at,bookingId:hold.booking_id||null}:null})
   }catch(error){next(error)}
 })
 

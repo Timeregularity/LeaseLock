@@ -48,8 +48,20 @@ export function NotFound() {
   return <Layout><main id="main-content" className="error-shell"><div className="error-code">404</div><span className="eyebrow">Page not found</span><h1>This page could not be found.</h1><p>The page may have moved, or the address may be incorrect.</p><Link to="/events" className="btn btn-primary">Back to events</Link></main></Layout>
 }
 
+export function Empty({ icon = '⌕', title = 'No results found', text = 'Try adjusting your search or filter.', action }) {
+  return (
+    <div className="empty-state text-center py-5 px-3">
+      <div className="empty-icon mb-3" style={{ fontSize: '2.5rem', opacity: 0.6 }}>{icon}</div>
+      <h3 className="h5 mb-2">{title}</h3>
+      <p className="text-muted mb-4">{text}</p>
+      {action && <Link to={action.to} className="btn btn-primary">{action.label}</Link>}
+    </div>
+  )
+}
+
 export function ScrollToTop() {
   const { pathname } = useLocation()
   useEffect(() => window.scrollTo(0,0), [pathname])
   return null
 }
+
