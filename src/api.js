@@ -1,10 +1,10 @@
 export class ApiError extends Error {
   constructor(message, status = 0, code = 'UNKNOWN_ERROR', details = null) {
-    super(message)
-    this.name = 'ApiError'
-    this.status = status
-    this.code = code
-    this.details = details
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.code = code;
+    this.details = details;
   }
 }
 
@@ -15,40 +15,57 @@ const statusMessages = {
   404: 'The requested item is no longer available.',
   409: 'That resource changed before your request completed.',
   429: 'Too many requests. Please wait a moment.',
-  500: 'The server could not complete the request.'
+  500: 'The server could not complete the request.',
+};
+
+const apiOrigin = String(import.meta.env.VITE_API_ORIGIN || '').replace(/\/$/, '');
+export function apiUrl(url) {
+  return `${apiOrigin}${url}`;
 }
 
-const apiOrigin = String(import.meta.env.VITE_API_ORIGIN || '').replace(/\/$/, '')
-export function apiUrl(url) { return `${apiOrigin}${url}` }
-
 export async function apiRequest(url, options = {}) {
-  const headers = new Headers(options.headers || {})
-  headers.set('Accept', 'application/json')
-  if (options.body && !(options.body instanceof FormData)) headers.set('Content-Type', 'application/json')
+  const headers = new Headers(options.headers || {});
+  headers.set('Accept', 'application/json');
+  if (options.body && !(options.body instanceof FormData))
+    headers.set('Content-Type', 'application/json');
   try {
-    const response = await fetch(apiUrl(url), { credentials: 'include', ...options, headers })
-    const payload = response.headers.get('content-type')?.includes('application/json') ? await response.json() : null
+    const response = await fetch(apiUrl(url), { credentials: 'include', ...options, headers });
+    const payload = response.headers.get('content-type')?.includes('application/json')
+      ? await response.json()
+      : null;
     if (!response.ok) {
-      if (response.status === 401 && !url.endsWith('/auth/login')) window.dispatchEvent(new Event('leaselock:unauthorized'))
-      throw new ApiError(payload?.message || statusMessages[response.status] || 'The request could not be completed.', response.status, payload?.code || `HTTP_${response.status}`, payload?.details)
+      if (response.status === 401 && !url.endsWith('/auth/login'))
+        window.dispatchEvent(new Event('leaselock:unauthorized'));
+      throw new ApiError(
+        payload?.message ||
+          statusMessages[response.status] ||
+          'The request could not be completed.',
+        response.status,
+        payload?.code || `HTTP_${response.status}`,
+        payload?.details,
+      );
     }
-    return payload
+    return payload;
   } catch (error) {
-    if (error instanceof ApiError) throw error
-    throw new ApiError('We could not reach the server. Check your connection and try again.', 0, 'NETWORK_ERROR')
+    if (error instanceof ApiError) throw error;
+    throw new ApiError(
+      'We could not reach the server. Check your connection and try again.',
+      0,
+      'NETWORK_ERROR',
+    );
   }
 }
 
 export function idempotencyKey(operation, resourceId) {
-  const storageKey = `ll:idempotency:${operation}:${resourceId}`
-  let key = sessionStorage.getItem(storageKey)
+  const storageKey = `ll:idempotency:${operation}:${resourceId}`;
+  let key = sessionStorage.getItem(storageKey);
   if (!key) {
-    key = crypto.randomUUID()
-    sessionStorage.setItem(storageKey, key)
+    key = crypto.randomUUID();
+    sessionStorage.setItem(storageKey, key);
   }
-  return key
+  return key;
 }
 
 export function clearIdempotencyKey(operation, resourceId) {
-  sessionStorage.removeItem(`ll:idempotency:${operation}:${resourceId}`)
+  sessionStorage.removeItem(`ll:idempotency:${operation}:${resourceId}`);
 }
