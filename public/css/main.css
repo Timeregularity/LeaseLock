@@ -1246,10 +1246,80 @@ a:hover {
 [data-theme='dark'] .admin-section,
 [data-theme='dark'] .metric-grid article,
 [data-theme='dark'] .reservation-card,
-[data-theme='dark'] .ticket-card {
-  background: #121b18;
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+[data-theme='dark'] .ticket-card,
+[data-theme='dark'] .booking-summary,
+[data-theme='dark'] .info-strip {
+  background: #121b18 !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45) !important;
+}
+
+[data-theme='dark'] .booking-summary {
+  background: #121b18 !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6) !important;
+}
+
+[data-theme='dark'] .booking-summary .eyebrow {
+  color: #10b981 !important;
+  font-weight: 750;
+  letter-spacing: 0.12em;
+}
+
+[data-theme='dark'] .summary-line {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+[data-theme='dark'] .summary-line span {
+  color: #94a3b8 !important;
+  font-size: 0.95rem;
+}
+
+[data-theme='dark'] .summary-line strong {
+  color: #ffffff !important;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+[data-theme='dark'] .booking-summary .secure-note {
+  color: #94a3b8 !important;
+}
+
+[data-theme='dark'] .info-strip {
+  background: #121b18 !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+[data-theme='dark'] .info-strip .step-number {
+  color: #10b981 !important;
+}
+
+[data-theme='dark'] .info-strip p {
+  color: #94a3b8 !important;
+}
+
+[data-theme='dark'] .info-strip strong {
+  color: #ffffff !important;
+}
+
+[data-theme='dark'] .info-strip .step-arrow {
+  color: #64748b !important;
+}
+
+[data-theme='dark'] .detail-meta span {
+  color: #94a3b8 !important;
+}
+
+[data-theme='dark'] .detail-meta strong {
+  color: #ffffff !important;
+}
+
+[data-theme='dark'] .detail-copy .lead {
+  color: #94a3b8 !important;
+}
+
+[data-theme='dark'] .eyebrow {
+  color: #10b981 !important;
 }
 
 [data-theme='dark'] .card-header,
@@ -1516,10 +1586,67 @@ a:hover {
 [data-theme='light'] .admin-section,
 [data-theme='light'] .metric-grid article,
 [data-theme='light'] .reservation-card,
-[data-theme='light'] .ticket-card {
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.04);
+[data-theme='light'] .ticket-card,
+[data-theme='light'] .booking-summary,
+[data-theme='light'] .info-strip {
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.04) !important;
+}
+
+[data-theme='light'] .booking-summary .eyebrow {
+  color: #15803d !important;
+  font-weight: 750;
+  letter-spacing: 0.12em;
+}
+
+[data-theme='light'] .summary-line {
+  border-bottom: 1px solid #f1f5f9 !important;
+}
+
+[data-theme='light'] .summary-line span {
+  color: #64748b !important;
+}
+
+[data-theme='light'] .summary-line strong {
+  color: #0f172a !important;
+}
+
+[data-theme='light'] .booking-summary .secure-note {
+  color: #64748b !important;
+}
+
+[data-theme='light'] .info-strip {
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+}
+
+[data-theme='light'] .info-strip .step-number {
+  color: #15803d !important;
+}
+
+[data-theme='light'] .info-strip p {
+  color: #64748b !important;
+}
+
+[data-theme='light'] .info-strip strong {
+  color: #0f172a !important;
+}
+
+[data-theme='light'] .detail-meta span {
+  color: #64748b !important;
+}
+
+[data-theme='light'] .detail-meta strong {
+  color: #0f172a !important;
+}
+
+[data-theme='light'] .detail-copy .lead {
+  color: #475569 !important;
+}
+
+[data-theme='light'] .eyebrow {
+  color: #15803d !important;
 }
 
 [data-theme='light'] .card-header,
