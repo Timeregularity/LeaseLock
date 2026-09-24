@@ -22,6 +22,8 @@ export function ThemeProvider({ children }) {
     try {
       document.documentElement.setAttribute('data-theme', theme);
       document.body.setAttribute('data-theme', theme);
+      document.documentElement.setAttribute('data-bs-theme', theme);
+      document.body.setAttribute('data-bs-theme', theme);
       localStorage.setItem('leaselock_theme', theme);
     } catch {}
   }, [theme]);

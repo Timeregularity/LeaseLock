@@ -770,24 +770,17 @@ export function SeatSelection() {
 
         {hold && secondsLeft > 0 && (
           <div className="container mb-4">
-            <div
-              className="card border-0 shadow-sm rounded-4 p-3 d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-3"
-              style={{
-                background:
-                  'linear-gradient(135deg, rgba(223, 109, 79, 0.12), rgba(222, 178, 94, 0.12))',
-                border: '1px solid rgba(223, 109, 79, 0.35)',
-              }}
-            >
+            <div className="card shadow-sm rounded-4 p-3 d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-3 hold-banner">
               <div className="d-flex align-items-center gap-3">
                 <span className="fs-2">⏱️</span>
                 <div>
-                  <h3 className="h6 mb-1 fw-bold text-dark">
+                  <h3 className="h6 mb-1 fw-bold hold-banner-heading">
                     Active Hold: Seat{hold.seatIds?.length === 1 ? '' : 's'}{' '}
                     {hold.seatIds?.join(', ')}
                   </h3>
                   <p className="mb-0 text-muted small">
                     Time remaining:{' '}
-                    <strong className="text-danger font-monospace fs-6">
+                    <strong className="font-monospace fs-6 hold-banner-timer">
                       {formatSeconds(secondsLeft)}
                     </strong>
                     . Your seats are locked exclusively for you.
